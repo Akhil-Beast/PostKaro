@@ -102,6 +102,7 @@ def post_view(p, clip, s):
     return {'id': p['id'], 'platform': p['platform'], 'enabled': bool(p['enabled']), 'title': p['title'],
             'body': p['body'], 'when': settings.to_local(when, s) if when else '', 'state': p['state'],
             'url': p['url'], 'error': p['error'], 'note': p.get('note'), 'errors': errors, 'warnings': warnings,
+            'account': p.get('account') or '',
             'progress': worker.progress.get(p['id']), 'attempts': p['attempts'],
             'hashtags': len(rules.hashtags(p['body'])), 'chars': len(p['body'] or ''),
             'title_chars': len(p['title'] or ''), 'desc_bytes': len((p['body'] or '').encode('utf-8'))}
@@ -197,6 +198,13 @@ def edit_post(request, body):
                 f[k] = body[k] or ''
         if 'when' in body:
             f['when_utc'] = db.iso(settings.from_local(body['when'], s)) if body['when'] else None
+        if 'account' in body:                      # '' follows the platform's default account
+            aid = str(body['account'] or '')
+            if aid and not any(a['account_id'] == aid for a in db.accounts(p['platform'])):
+                raise ApiError('That account is not connected (Accounts page).')
+            if p['state'] != 'draft':
+                raise ApiError('The account can only change before the post is scheduled. Move it back to drafts first.')
+            f['account'] = aid or None
         if p['state'] in ('uploading', 'publishing'):
             raise ApiError('This post is being sent right now. Try again in a minute.', 409)
         if p['state'] in ('live',):
@@ -205,7 +213,7 @@ def edit_post(request, body):
         if p['state'] in ('processing', 'waiting') and set(f) & {'title', 'body', 'when_utc'}:
             p2 = db.post_full(pid)
             p2['when'] = db.parse(p2['when_utc'])
-            plat, acc = platform(p['platform']), db.active_account(p['platform'])
+            plat, acc = platform(p['platform']), db.post_account(p2)
             if not plat.update(p2, acc):            # can't change it there: remove and upload again
                 plat.cancel(p2, acc)
                 db.update_post(pid, state='scheduled', remote_id=None, remote={}, prepared_at=None)
@@ -295,20 +303,24 @@ def plan(request, body):
 
 def schedule(request, body):
     """Schedule the given posts (or every ticked draft of a batch). Posts with problems are skipped and
-    listed with their reasons."""
+    listed with their reasons. now=True ("Post now"): every one goes out at once, whatever time it had."""
     if 'batch' in body:
         ids = [r['id'] for r in db.rows("SELECT p.id FROM posts p JOIN clips c ON c.id=p.clip_id WHERE c.batch_id=? "
                                         "AND c.removed=0 AND p.enabled=1 AND p.state='draft'", (int(body['batch']),))]
     else:
         ids = [int(i) for i in body.get('ids', [])]
+    post_now = bool(body.get('now'))
     done, now_n, skipped = 0, 0, []
     for pid in ids:
         p = db.post_full(pid)
-        if not p or p['state'] != 'draft':
+        if not p or p['state'] != 'draft' or not p['enabled']:
             continue
+        if post_now:
+            p['when_utc'] = None
         why = list(rules.check(p['platform'], p['title'], p['body'], p['clip'])[0])
-        if not db.active_account(p['platform']):
-            why.append(f"{settings.NAMES[p['platform']]} is not connected (Accounts page).")
+        if not db.post_account(p):
+            why.append(f"The {settings.NAMES[p['platform']]} account picked for it is no longer connected (Accounts page)."
+                       if p.get('account') else f"{settings.NAMES[p['platform']]} is not connected (Accounts page).")
         if not Path(p['clip']['file']).exists():
             why.append('The video file is gone from its folder.')
         when = db.parse(p['when_utc'])
@@ -317,8 +329,9 @@ def schedule(request, body):
         if why:
             skipped.append({'id': pid, 'clip': p['clip']['no'], 'platform': p['platform'], 'why': why})
             continue
-        db.update_post(pid, state='scheduled', attempts=0, error=None, next_try=None)
-        db.log(pid, f"scheduled for {p['when_utc'] or 'now'}")
+        db.update_post(pid, state='scheduled', attempts=0, error=None, next_try=None,
+                       **({'when_utc': None} if post_now else {}))
+        db.log(pid, 'post now' if post_now else f"scheduled for {p['when_utc'] or 'now'}")
         done += 1
         now_n += not when
     poke()
@@ -335,7 +348,7 @@ def cancel_post(pid):
             raise ApiError('This post is already live; delete it on the platform itself.')
         if p['remote_id'] and p['state'] in ('processing', 'waiting'):
             p['when'] = db.parse(p['when_utc'])
-            platform(p['platform']).cancel(p, db.active_account(p['platform']))
+            platform(p['platform']).cancel(p, db.post_account(p))
         db.update_post(pid, state='cancelled', remote_id=None, remote={}, prepared_at=None, next_try=None)
         db.log(pid, 'cancelled')
     finally:

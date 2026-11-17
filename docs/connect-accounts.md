@@ -146,10 +146,11 @@ Page**. Both are free switches.
 | "URL blocked" or "redirect URI is not whitelisted" (Meta) | Add `http://localhost:8765/oauth/meta` to **Valid OAuth Redirect URIs** (Part B, step 3), and check the app is in **Development** mode. |
 | "Instagram: none found" after connecting | Instagram isn't a Creator/Business account, or isn't linked to the Page (Part 0). Fix that, then **Reconnect**. |
 | "A permission is missing" | Click **Reconnect** and, on Meta's page, allow everything and pick your Page and Instagram. |
-| A yellow dot: "login ends on …" | Instagram's login lasts about 60 days, and Meta asks for a fresh login every 90 days. Click **Reconnect** on the Accounts page; it takes a minute. PostKaro warns you 7 days and 1 day before. |
+| An ochre square at the top right, or an ochre "Reconnect soon" on the Accounts page | Instagram's login lasts about 60 days, and Meta asks for a fresh login every 90 days. Click **Reconnect** on the Accounts page; it takes a minute. PostKaro warns you 7 days and 1 day before. |
 | "Custom thumbnail not set on YouTube" | Custom thumbnails need a verified channel. Verify yours (phone number) at <https://www.youtube.com/verify>, then set the thumbnail again. |
 | "Custom thumbnail not set on Facebook", a permission is missing | Since PostKaro 0.3, Facebook thumbnails need two more permissions. Press **Reconnect** on the Accounts page and allow everything. |
 | "today's YouTube allowance" is used up | Your Google project can upload 100 videos a day. It resets at midnight US Pacific time. |
+| Instagram: "Meta error 1363008", "could not store the video" | A fault on Meta's side that comes and goes: their upload server gives each video about 30 seconds to be stored, and drops it when it is slow (bigger clips more often). It is not your file, not PostKaro and not too many posts: YouTube and Facebook take the same files. PostKaro sends the full-quality file again by itself after 1, 2, 5, 15, 30, 60 and 120 minutes, and the Queue shows the next try. If it still fails, press **Retry** later. (PostKaro before 0.4.4 showed this as "Meta said 400".) |
 
 **Where things are kept**
 - **Your logins:** an encrypted file in PostKaro's data folder. Its key is in your computer's password

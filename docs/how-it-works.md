@@ -56,6 +56,12 @@ at a time, so two big uploads never run together.
 - YouTube changes it in place (`videos.update`).
 - Instagram and Facebook remove it and upload it again (`update()` returns False).
 
+## Watching a clip big (`web/app.js`, `previewClip`)
+- **Preview**, under each clip's video, plays it large in the middle of the screen.
+- **Previous / Next** (or the left and right arrow keys) go through the video's clips; Esc or a click
+  on the dark area closes it.
+- **Use this frame as thumbnail** works there too: pause on the frame you want, then press it.
+
 ## Custom thumbnails (`covers.py`)
 - **One per clip.** A frame (ffmpeg grabs it at the chosen second) or an uploaded JPG/PNG/WebP (turned into
   a JPEG, longest side at most 1920 px). Kept in the data folder (`covers/`), with a version number.
@@ -129,13 +135,24 @@ am I?".
 The real platform calls can only be tested with real accounts (docs/connect-accounts.md, Part C).
 
 ## The page's look
-- **One dark design system** in `web/style.css`: colour, type and size tokens at the top, then shared
-  pieces (buttons, fields, switches, badges, lists, dialogs, toasts), then the pages.
-- **Yellow (`--brand`)** marks only the main action on a page, the default account, a ticked platform
-  and keyboard focus.
-- **Green, amber and red** mean only connected/live, attention, and failed.
+- **Since 0.4 the page looks like a classic ledger** (made with the Hallmark design skill, theme "Loom",
+  in its darker "oat" colours): beige paper, dark ink, thin lines, deep indigo, and rounded switches.
+  Big headings and numbers use the Libre Caslon serif; everything else uses Hanken Grotesk. The Queue
+  is a departures board on an indigo band: each post's time in big figures, one block per day.
+- **Three files** in `web/`, loaded in this order:
+  - `tokens.css`: the colours, sizes and spacing, all in one place;
+  - `base.css`: the basics every page shares (focus ring, text, links);
+  - `style.css`: the pieces (buttons, fields, switches, badges, lists, dialogs, toasts), then each page.
+- **What each colour means:**
+  - indigo: the main button on a page, the default account, anything live, and the Queue board;
+  - light buttons with a dark border: every other button;
+  - ochre: something that needs you soon (a login running out); a light row on the Queue board: a
+    missed post;
+  - a dark bar with an ochre sign: a warning to read, such as "this video is not from your channel";
+  - red: failed.
+  - YouTube, Instagram and Facebook each keep their own colour, only in their small square marks.
 - **Assets are kept in the repo**, so the page never loads anything from the internet:
-  - the Inter font: `web/fonts`, SIL Open Font License;
+  - the Libre Caslon Display and Hanken Grotesk fonts: `web/fonts`, SIL Open Font License;
   - the line icons: `web/icons.js`, a few icons from Lucide, ISC licence;
-  - the mascot: `web/img`. `logo.png` is the head cropped from the full sticker; `mascot.png` is the small
-    full sticker shown on empty pages.
+  - the mascot: `web/img`. Since 0.4 only the browser tab icon (`favicon.png`) uses it. `logo.png`,
+    `mascot.png` and the old Inter font are no longer used by the page.

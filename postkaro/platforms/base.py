@@ -8,11 +8,12 @@ from datetime import timedelta
 
 class PlatformError(Exception):
     """retry=True: try again later (network, platform busy). login=True: the login is broken, the user must
-    reconnect. Otherwise the post fails with this message (written for the user, in plain words)."""
+    reconnect. Otherwise the post fails with this message (written for the user, in plain words).
+    patient=True: a fault on the platform's side that can last a while: retry more times, further apart."""
 
-    def __init__(self, message, retry=False, login=False):
+    def __init__(self, message, retry=False, login=False, patient=False):
         super().__init__(message)
-        self.retry, self.login = retry, login
+        self.retry, self.login, self.patient = retry, login, patient
 
 
 class Platform:

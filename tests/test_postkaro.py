@@ -62,6 +62,7 @@ class Fake(Platform):
         self.min_ahead = timedelta(0)
         self.calls, self.fail_upload, self.login_broken, self.now = [], [], False, None
         self.updatable = True
+        self.used = []                         # (step, account id) for each upload and poll
 
     def check(self, account):
         if self.login_broken:
@@ -70,6 +71,7 @@ class Fake(Platform):
 
     def upload(self, post, account, progress):
         self.calls.append(('upload', post['id'], post['when']))
+        self.used.append(('upload', account['account_id']))
         if self.login_broken:
             raise PlatformError('login gone', login=True)
         if self.fail_upload:
@@ -79,6 +81,7 @@ class Fake(Platform):
 
     def poll(self, post, account):
         self.calls.append(('poll', post['id']))
+        self.used.append(('poll', account['account_id']))
         when = post['when']
         if self.remote_schedule and (when is None or self.now >= when):
             return 'live', f'https://example/{post["remote_id"]}'
@@ -323,6 +326,58 @@ class TestWorker(Base):
         self.assertEqual(p['state'], 'failed')
         self.assertIn('net down', p['error'])
 
+    def test_picked_account_is_used(self):
+        """A post can go to another channel than the default; every step then uses that channel."""
+        self.connect_all()
+        db.save_account('youtube', 'UC2', 'Second Channel', active=False)
+        now = datetime(2026, 11, 11, 10, 0, tzinfo=UTC)
+        pid = self.schedule('youtube', now + timedelta(hours=3))
+        db.update_post(pid, account='UC2')
+        self.tick(now)
+        self.tick(now + timedelta(minutes=1))
+        self.assertEqual(self.fakes['youtube'].used, [('upload', 'UC2'), ('poll', 'UC2')])
+
+    def test_default_account_is_kept_after_upload(self):
+        """No pick: the default at upload time is recorded, and a later change of default does not move it."""
+        self.connect_all()
+        db.save_account('youtube', 'UC2', 'Second Channel', active=False)
+        now = datetime(2026, 11, 11, 10, 0, tzinfo=UTC)
+        pid = self.schedule('youtube', now + timedelta(hours=3))
+        self.tick(now)
+        self.assertEqual(db.post(pid)['account'], 'UC1')
+        db.save_account('youtube', 'UC2', 'Second Channel', active=True)     # the default changes
+        self.tick(now + timedelta(minutes=1))
+        self.assertEqual(self.fakes['youtube'].used, [('upload', 'UC1'), ('poll', 'UC1')])
+
+    def test_picked_account_gone(self):
+        self.connect_all()
+        now = datetime(2026, 11, 11, 10, 0, tzinfo=UTC)
+        pid = self.schedule('youtube', now + timedelta(hours=3))
+        db.update_post(pid, account='UC9')
+        self.tick(now)
+        p = db.post(pid)
+        self.assertEqual(p['state'], 'failed')
+        self.assertIn('no longer connected', p['error'])
+        self.assertEqual(self.fakes['youtube'].used, [])            # never sent to the default instead
+
+    def test_platform_fault_waits_longer_and_says_when(self):
+        """A fault on the platform's side (patient) gets more tries, further apart, and the post says when."""
+        self.connect_all()
+        now = datetime(2026, 11, 11, 10, 0, tzinfo=UTC)
+        pid = self.schedule('instagram', now + timedelta(hours=5))
+        self.fakes['instagram'].fail_upload = [PlatformError('Meta error 1363008.', retry=True, patient=True)
+                                               for _ in range(len(worker.RETRY_PATIENT) + 1)]
+        t = now
+        for n in range(1, len(worker.RETRY_PATIENT) + 1):
+            self.tick(t)
+            p = db.post(pid)
+            self.assertEqual((p['state'], p['attempts']), ('scheduled', n))
+            self.assertEqual(db.parse(p['next_try']) - t, worker.RETRY_PATIENT[n - 1])
+            self.assertIn('PostKaro tries again at', p['error'])
+            t = db.parse(p['next_try'])
+        self.tick(t)
+        self.assertEqual(db.post(pid)['state'], 'failed')
+
     def test_login_broken(self):
         self.connect_all()
         now = datetime(2026, 11, 11, 10, 0, tzinfo=UTC)
@@ -431,6 +486,37 @@ class TestServer(Base):
         p = db.post(pid)
         self.assertEqual((p['state'], p['remote_id'], p['body']), ('scheduled', None, 'new words'))
         self.assertIn(('cancel', pid), self.fakes['facebook'].calls)
+
+    def test_post_now_ignores_the_set_time(self):
+        self.c.cookies.set('pk', self.key)
+        self.connect_all()
+        kit.import_kit(clipkaro_project(self.tmp))
+        yt = db.one("SELECT id FROM posts WHERE platform='youtube'")['id']
+        fb = db.one("SELECT id FROM posts WHERE platform='facebook'")['id']
+        db.update_post(yt, when_utc=db.iso(db.now() + timedelta(hours=5)))
+        db.update_post(fb, enabled=0)                                   # not ticked: stays a draft
+        r = self.c.post('/api/schedule', json={'ids': [yt, fb], 'now': True}, headers=self.h)
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual((r.json()['scheduled'], r.json()['now']), (1, 1))
+        p = db.post(yt)
+        self.assertEqual((p['state'], p['when_utc']), ('scheduled', None))
+        self.assertEqual(db.post(fb)['state'], 'draft')
+
+    def test_pick_account_for_a_post(self):
+        self.c.cookies.set('pk', self.key)
+        self.connect_all()
+        db.save_account('youtube', 'UC2', 'Second Channel', active=False)
+        kit.import_kit(clipkaro_project(self.tmp))
+        pid = db.one("SELECT id FROM posts WHERE platform='youtube'")['id']
+        r = self.c.patch(f'/api/post/{pid}', json={'account': 'UC9'}, headers=self.h)
+        self.assertEqual(r.status_code, 400)                          # not a connected account
+        r = self.c.patch(f'/api/post/{pid}', json={'account': 'UC2'}, headers=self.h)
+        self.assertEqual((r.status_code, r.json()['account']), (200, 'UC2'))
+        r = self.c.patch(f'/api/post/{pid}', json={'account': ''}, headers=self.h)
+        self.assertEqual(r.json()['account'], '')                      # back to following the default
+        db.update_post(pid, state='scheduled')
+        r = self.c.patch(f'/api/post/{pid}', json={'account': 'UC2'}, headers=self.h)
+        self.assertEqual(r.status_code, 400)                          # only while it is a draft
 
     def test_settings_and_apps(self):
         self.c.cookies.set('pk', self.key)
@@ -568,6 +654,64 @@ class TestVault(unittest.TestCase):
         self.assertNotIn(b'secret-123', (Path(HOME) / 'logins.enc').read_bytes())
         vault.delete('x')
         self.assertIsNone(vault.get('x'))
+
+
+class TestMetaUploadErrors(unittest.TestCase):
+    """Meta's video upload server (rupload) answers in its own shape; PostKaro must read it (no network)."""
+
+    def fake(self, answers):
+        class Answer:
+            def __init__(self, status, body):
+                self.status_code, self.body = status, body
+
+            def json(self):
+                return self.body
+
+        class Requests:
+            RequestException = Exception
+
+            def __init__(self):
+                self.calls = []
+
+            def request(self, method, url, **kw):
+                self.calls.append((method, url))
+                return Answer(*answers.pop(0))
+        return Requests()
+
+    def run_with(self, answers, fn):
+        from postkaro.platforms import meta
+        old, req = meta._http, self.fake(answers)
+        meta._http = lambda: req
+        try:
+            with self.assertRaises(PlatformError) as cm:
+                fn(meta)
+        finally:
+            meta._http = old
+        return cm.exception
+
+    def test_upload_server_answer_is_read(self):
+        e = self.run_with([(400, {'debug_info': {'retriable': False, 'type': 'ProcessingFailedError',
+                                                 'message': 'Request processing failed'}})],
+                          lambda meta: meta._call('POST', 'https://rupload.facebook.com/ig-api-upload/v27.0/1'))
+        self.assertTrue(e.retry)
+        self.assertIn('Request processing failed', str(e))
+        self.assertNotIn('Meta said 400', str(e))
+
+    def test_instagram_upload_fault_names_meta_error(self):
+        vault.put('meta-user:U1', {'token': 't'})
+        clip = Path(tempfile.mkdtemp(prefix='pk-ig-')) / 'clip.mp4'
+        clip.write_bytes(b'\0' * 1000)
+        answers = [(200, {'id': 'C1', 'uri': 'https://rupload.facebook.com/ig-api-upload/v27.0/C1'}),
+                   (400, {'debug_info': {'retriable': False, 'type': 'ProcessingFailedError',
+                                         'message': 'Request processing failed'}}),
+                   (200, {'video_status': {'uploading_phase': {'status': 'error', 'errors': [
+                       {'code': 1363008, 'message': 'OIL Error[FILE_NOT_FOUND: 6]: File not found.'}]}}})]
+        account = {'account_id': 'IG1', 'extra': {'meta_user': 'U1'}}
+        post = {'body': 'caption', 'clip': {'file': str(clip)}}
+        e = self.run_with(answers, lambda meta: meta.Instagram().upload(post, account, lambda f: None))
+        self.assertTrue(e.retry and e.patient)
+        self.assertIn('1363008', str(e))
+        shutil.rmtree(clip.parent, ignore_errors=True)
 
 
 if __name__ == '__main__':

@@ -23,6 +23,9 @@ from .platforms.base import PlatformError
 TICK = 20                                   # seconds between rounds
 HEALTH_EVERY = timedelta(hours=6)
 RETRY = [timedelta(minutes=1), timedelta(minutes=5), timedelta(minutes=15)]
+# a platform-side fault (PlatformError.patient), e.g. Instagram's upload server timing out (Meta error 1363008):
+# it comes and goes from minute to minute, so two quick tries first, then longer waits; each try is a new upload
+RETRY_PATIENT = [timedelta(minutes=m) for m in (1, 2, 5, 15, 30, 60, 120)]
 PROCESSING_LIMIT = timedelta(hours=2)
 LIVE_LIMIT = timedelta(hours=1)             # remote-scheduled post still not live this long after its time
 REUPLOAD_AFTER = timedelta(hours=23)        # an Instagram upload expires after 24 h
@@ -66,12 +69,16 @@ def step(pid, now, s):
     if p['next_try'] and db.parse(p['next_try']) > now:
         return
     plat = platform(p['platform'])
-    acc = db.active_account(p['platform'])
+    acc = db.post_account(p)
     when = db.parse(p['when_utc'])
     p['when'] = when
     grace = timedelta(minutes=int(s.get('late_grace_min') or 15))
     st = p['state']
     try:
+        if not acc and p.get('account'):
+            raise PlatformError(f'The {settings.NAMES[p["platform"]]} account picked for this post is no longer '
+                                f'connected. Connect it again on the Accounts page (or move the post back to drafts '
+                                f'and pick another), then press Retry.')
         if not acc:
             raise PlatformError(f'{settings.NAMES[p["platform"]]} is not connected. Connect it on the Accounts page, '
                                 f'then press Retry.')
@@ -89,7 +96,7 @@ def step(pid, now, s):
             if when is None and p['when_utc']:
                 db.update_post(pid, when_utc=None)
             p['when'] = when
-            db.update_post(pid, state='uploading', error=None)
+            db.update_post(pid, state='uploading', error=None, account=acc['account_id'])   # every later step uses it
             progress[pid] = 0.0
             remote = plat.upload(p, acc, lambda f: progress.__setitem__(pid, max(0.0, min(1.0, f))))
             progress.pop(pid, None)
@@ -179,7 +186,7 @@ def step_publish(p, now, s, grace):
         return missed(p, when)
     prepared = db.parse(p['prepared_at'])
     plat = platform(p['platform'])
-    acc = db.active_account(p['platform'])
+    acc = db.post_account(p)
     if prepared and now - prepared > timedelta(hours=24):
         db.update_post(p['id'], state='scheduled', remote_id=None, remote={}, prepared_at=None)
         db.log(p['id'], 'upload expired: uploading again')
@@ -212,15 +219,18 @@ def missed(p, when):
 
 def problem(p, st, e, now):
     if e.login:
-        acc = db.active_account(p['platform'])
+        acc = db.post_account(db.post(p['id']) or p)
         if acc:
             db.run("UPDATE accounts SET status='broken', problem=? WHERE platform=? AND account_id=?",
                    (str(e), acc['platform'], acc['account_id']))
         return fail(p, f'{e} Reconnect on the Accounts page, then press Retry.')
     n = int(p['attempts'] or 0)
-    if e.retry and n < len(RETRY):
+    waits = RETRY_PATIENT if getattr(e, 'patient', False) else RETRY
+    if e.retry and n < len(waits):
         back = {'uploading': 'scheduled', 'publishing': 'waiting'}.get(st, st)
-        db.update_post(p['id'], state=back, attempts=n + 1, next_try=db.iso(now + RETRY[n]), error=str(e))
+        at = settings.to_local(now + waits[n], settings.load())[11:16]
+        db.update_post(p['id'], state=back, attempts=n + 1, next_try=db.iso(now + waits[n]),
+                       error=f'{e} PostKaro tries again at {at}.')
         db.log(p['id'], f'retry {n + 1}: {e}')
         return
     fail(p, str(e))

@@ -52,6 +52,10 @@ def _call(method, url, **kw):
         if r.status_code >= 500:
             raise PlatformError(f'Meta is busy ({r.status_code}).', retry=True)
         raise PlatformError(f'Meta answered something unexpected ({r.status_code}).')
+    if isinstance(j, dict) and isinstance(j.get('debug_info'), dict) and r.status_code >= 400:
+        d = j['debug_info']                       # rupload.facebook.com, the video upload server, answers this way
+        raise PlatformError(f"Meta's upload server did not take the video ({d.get('message') or d.get('type') or r.status_code}).",
+                            retry=True)
     if isinstance(j, dict) and 'error' in j:
         raise _err(j['error'], r.status_code)
     if r.status_code >= 400:
@@ -265,8 +269,32 @@ class Instagram(Platform):
             note = 'Instagram can only use a frame from the video as its cover, so it picked its own.'
         c = _call('POST', f"/{account['account_id']}/media", data=data)
         uri = c.get('uri') or f"https://rupload.facebook.com/ig-api-upload/{VERSION}/{c['id']}"
-        _rupload(uri, token, clip['file'], progress)
+        try:
+            _rupload(uri, token, clip['file'], progress)
+        except PlatformError as e:
+            raise self._upload_problem(c['id'], token, e) from None
         return {'id': c['id'], 'note': note}
+
+    def _upload_problem(self, cid, token, e):
+        """The upload server refused the file: the upload's own status says why. Each retry starts a new upload.
+        Meta error 1363008 ("File not found" while storing it) comes and goes on Meta's side: their server gives a
+        video about 30 s to be stored and drops it after that, so bigger files fail more when it is slow (tested
+        2026-11-16: 1.3-16 MB mostly went through in 10-28 s, 39.5 MB failed 6 of 6 at 35 s; the same failure came
+        with and without Content-Type, and for a video_url fetched from the Page's own Facebook copy). The owner
+        chose to keep sending the full-quality file (no lighter Instagram copy), retried quickly then patiently."""
+        try:
+            up = (_call('GET', f'/{cid}', params={'fields': 'video_status', 'access_token': token})
+                  .get('video_status') or {}).get('uploading_phase') or {}
+        except PlatformError:
+            up = {}
+        first = (up.get('errors') or [{}])[0]
+        if first.get('code') == 1363008:
+            return PlatformError("Instagram's upload server could not store the video (Meta error 1363008, a fault "
+                                 "on Meta's side that comes and goes).", retry=True, patient=True)
+        if first.get('code'):
+            return PlatformError(f"Instagram's upload server did not take the video ({str(first.get('message'))[:140]}, "
+                                 f"Meta error {first['code']}).", retry=True, patient=True)
+        return PlatformError(str(e), retry=e.retry, login=e.login, patient=e.retry)
 
     def poll(self, post, account):
         token = _user(account)['token']

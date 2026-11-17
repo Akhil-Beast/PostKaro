@@ -81,6 +81,11 @@ def connect():
             for name, kind in cols:
                 if name not in have:
                     con.execute(f'ALTER TABLE {table} ADD COLUMN {name} {kind}')
+        # since 0.4.5 a post records the account it was uploaded to; posts uploaded before that are on the
+        # default account of the time, so pin them to it (a later change of default must not move them)
+        con.execute("UPDATE posts SET account=(SELECT a.account_id FROM accounts a WHERE a.platform=posts.platform "
+                    "AND a.active=1) WHERE account IS NULL AND remote_id IS NOT NULL "
+                    "AND state IN ('processing', 'waiting', 'publishing')")
         con.commit()
         _ready.add(str(path))
     return con
@@ -154,6 +159,15 @@ def active_account(platform):
         if a['active']:
             return a
     return None
+
+
+def post_account(p):
+    """The account a post goes to: the one picked for it on the page, or the one it was uploaded to (the
+    worker records it when the upload starts), else the platform's default. None when the picked account
+    was disconnected: the post must not quietly go to another channel."""
+    if p.get('account'):
+        return next((a for a in accounts(p['platform']) if a['account_id'] == p['account']), None)
+    return active_account(p['platform'])
 
 
 def save_account(platform, account_id, name, extra=None, expires=None, active=True):

@@ -46,8 +46,24 @@ Then connect your accounts on the **Accounts** page. The step-by-step guide is
 
 On the page:
 1. Check each clip's text for each platform. The counters turn red over a platform's limit.
-2. Press **Plan for me**, or type times yourself. An empty time means "as soon as I press Schedule".
-3. Press **Schedule all**. The **Queue** shows what's waiting; **Posted** shows the links.
+   - **Which channel or account:** with more than one YouTube channel, Instagram account or Facebook
+     Page connected, each box has a "to …" list. It starts on your default (Accounts page); pick another
+     for just this post. It can change until you press Schedule. The Queue shows where each post goes.
+2. Press **Plan for me**, or type times yourself:
+   - **Time for all platforms** (above each clip's three boxes) puts the same time on YouTube, Instagram
+     and Facebook. Change one box to give that platform its own time.
+   - Under every time PostKaro shows roughly when it goes live: "under 1 hour", "about 5 hours",
+     "about 3 days".
+   - **An empty time** means "as soon as I press Schedule": PostKaro starts uploading at once, and the
+     clip goes live as soon as the platform has finished processing it (usually a few minutes). Keep
+     the laptop on until it shows as Live.
+3. Press **Schedule** (the button says how many posts). The **Queue** shows what's waiting; **Posted**
+   shows the links.
+
+**Post one clip right now:** press **Post now** at the top of the clip. Its ticked platforms upload at
+once, even where a time is typed in, and each goes live as soon as the platform has processed it
+(usually a few minutes; how long the upload takes depends on your internet). Keep the laptop on until
+the Queue shows it live.
 
 **How each platform goes live**
 
