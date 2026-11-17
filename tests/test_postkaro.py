@@ -735,7 +735,7 @@ class TestPostNow(Base):
         res = self.run_cli(proj, dry=True)
         self.assertTrue(res['dry'])
         self.assertEqual(len(res['would_post']), 6)                    # 2 clips x 3 platforms
-        self.assertFalse(db.rows("SELECT id FROM posts WHERE state='scheduled'"))
+        self.assertFalse(db.rows("SELECT id FROM posts"))                # a test leaves nothing behind
         res = self.run_cli(proj)
         self.assertEqual(res['scheduled'], 6, res)
         rows = db.rows("SELECT state, when_utc FROM posts")

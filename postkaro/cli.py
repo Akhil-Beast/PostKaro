@@ -5,6 +5,7 @@ import shutil
 import subprocess
 import sys
 import webbrowser
+from pathlib import Path
 
 from . import __version__, db, kit, paths, service, settings
 
@@ -65,13 +66,14 @@ def cmd_link(a):
 def cmd_post_now(a):
     """For ClipKaro's live clipping: add a project and post every clip on every connected platform at once
     (the "Post now" button for the whole batch, without opening the page). Prints one line of JSON."""
-    bid = kit.import_kit(a.path)
-    if a.dry:
-        rows = db.rows("SELECT p.platform, c.no FROM posts p JOIN clips c ON c.id=p.clip_id WHERE c.batch_id=? "
-                       "AND c.removed=0 AND p.enabled=1 AND p.state='draft'", (bid,))
-        print(json.dumps({'ok': True, 'dry': True, 'batch': bid,
-                          'would_post': [{'clip': r['no'], 'platform': r['platform']} for r in rows]}))
+    if a.dry:                       # a test: read only, nothing is added to PostKaro or posted
+        k = kit.load(a.path)
+        connected = sorted({x['platform'] for x in db.accounts() if x['active']})
+        print(json.dumps({'ok': True, 'dry': True, 'connected': connected,
+                          'would_post': [{'clip': c['id'], 'platform': pl} for c in k['clips']
+                                         if Path(c['file']).exists() for pl in connected]}))
         return
+    bid = kit.import_kit(a.path)
     running = service.start_background()
     from . import server
     res = server.schedule(None, {'batch': bid, 'now': True})
