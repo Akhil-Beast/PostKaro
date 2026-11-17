@@ -23,18 +23,38 @@ with any ClipKaro project folder.
 
 ## Set up (once)
 
-You need Python 3.11 or newer.
+Works on **Windows, Mac and Linux**. You need Python 3.11 or newer: use the same one as for ClipKaro.
+Put PostKaro **next to** the ClipKaro folder, not inside it. Easiest: in Claude Code (inside ClipKaro),
+say **"install PostKaro too"**. By hand:
 
-```
-git clone <this repo> PostKaro
+**Windows** (PowerShell):
+```powershell
+git clone https://github.com/allthingsaman/PostKaro.git
 cd PostKaro
-python3 install.py          # Windows: python install.py
+python install.py
+python run.py open
+```
+
+**Mac:**
+```bash
+git clone https://github.com/allthingsaman/PostKaro.git
+cd PostKaro
+python3.13 install.py
 python3 run.py open
 ```
 
+**Linux:** the same, with `python3`.
+
 `install.py` makes a private Python environment (`.venv`) and sets PostKaro to start by itself when you
-log in. That keeps the page link working, and lets Instagram posts go out at their time.
-`--no-service` skips that.
+log in: on Windows a login entry for your user, on a Mac a login item (macOS shows "Background Items
+Added"), on Linux a systemd user service. That keeps the page link working, and lets Instagram posts go
+out at their time. `--no-service` skips that.
+
+- **Logins** stay in your computer's own password store: Windows Credential Manager, the Mac Keychain,
+  or the Linux keyring. On a Mac, if it asks whether Python may use the "postkaro" Keychain item, choose
+  **Always Allow**.
+- **Thumbnails** use ffmpeg, the same one ClipKaro uses (on a Mac Homebrew's `ffmpeg-full`, which
+  PostKaro finds by itself).
 
 Then connect your accounts on the **Accounts** page. The step-by-step guide is
 **[docs/connect-accounts.md](docs/connect-accounts.md)**: about 30–45 minutes, once.

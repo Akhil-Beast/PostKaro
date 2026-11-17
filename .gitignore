@@ -6,3 +6,5 @@ __pycache__/
 *.enc
 logins.key
 app.json
+# a design tool's working files (screenshots, before/after pages)
+.hallmark/

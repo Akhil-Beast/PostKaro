@@ -27,10 +27,15 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--no-service', action='store_true')
     a = ap.parse_args()
-    sys.stdout.reconfigure(line_buffering=True)
+    # UTF-8 output and UTF-8 mode for the steps below: on Windows, Python otherwise writes with the old code
+    # page when its output goes to another program (an AI helper), and stops on a character like the gear
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace', line_buffering=True)
+    os.environ.setdefault('PYTHONUTF8', '1')
+    os.environ.setdefault('PYTHONIOENCODING', 'utf-8')
     print('== PostKaro setup ==')
     if sys.version_info < (3, 11):
-        print(f'[X] Python 3.11 or newer is needed (you have {sys.version.split()[0]}). Install it from python.org.')
+        print(f'[X] Python 3.11 or newer is needed (you have {sys.version.split()[0]}). Use the same one as for '
+              f'ClipKaro (Windows: py -3.12 install.py; Mac: python3.13 install.py).')
         sys.exit(1)
     print(f'[ok] Python {sys.version.split()[0]}')
 

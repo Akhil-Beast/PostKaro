@@ -714,5 +714,39 @@ class TestMetaUploadErrors(unittest.TestCase):
         shutil.rmtree(clip.parent, ignore_errors=True)
 
 
+class TestWindowsAndMac(unittest.TestCase):
+    """Install check for Windows and macOS: what this Linux laptop can still check."""
+
+    def test_mac_finds_homebrews_ffmpeg(self):
+        from unittest import mock
+        import run
+        full = '/opt/homebrew/opt/ffmpeg-full/bin'
+        with mock.patch.object(sys, 'platform', 'darwin'), \
+                mock.patch('os.path.isfile', lambda p: p == full + '/ffmpeg'), \
+                mock.patch.dict(os.environ, {'PATH': '/usr/bin:/bin'}):
+            run.find_ffmpeg()
+            self.assertTrue(os.environ['PATH'].startswith(full + os.pathsep))
+        with mock.patch.object(sys, 'platform', 'darwin'), mock.patch('shutil.which', lambda n: None), \
+                mock.patch('os.path.isfile', lambda p: p == '/opt/homebrew/bin/ffmpeg'), \
+                mock.patch.dict(os.environ, {'PATH': '/usr/bin:/bin'}):
+            run.find_ffmpeg()                    # a login item doesn't see Homebrew's folder
+            self.assertTrue(os.environ['PATH'].endswith(os.pathsep + '/opt/homebrew/bin'))
+
+    def test_utf8_for_hindi_titles(self):
+        from unittest import mock
+        import run
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop('PYTHONUTF8', None)
+            run.utf8_output()
+            self.assertEqual(os.environ['PYTHONUTF8'], '1')
+
+    def test_login_start_on_each_system(self):
+        from postkaro import service
+        cmd = service.command(windowless=True)
+        self.assertTrue(cmd[0].endswith(('python', 'pythonw.exe')))
+        self.assertEqual(cmd[-2:], [str(paths.ROOT / 'run.py'), 'serve'])
+        self.assertEqual(service._plist_path().name, 'com.postkaro.helper.plist')
+
+
 if __name__ == '__main__':
     unittest.main()

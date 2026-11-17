@@ -20,6 +20,48 @@ PY = VENV / ('Scripts/python.exe' if os.name == 'nt' else 'bin/python')
 PYW = VENV / 'Scripts' / 'pythonw.exe'
 
 
+def find_ffmpeg():
+    """ffmpeg makes the thumbnails. Windows: winget puts it on the PATH of NEW terminals only, so find it
+    for this one too. macOS: Homebrew's "ffmpeg-full" (the one ClipKaro uses) is kept off the PATH, and
+    a login item doesn't see Homebrew's folder at all: add them."""
+    import glob
+    import shutil
+    if sys.platform == 'darwin':
+        for d in ('/opt/homebrew/opt/ffmpeg-full/bin', '/usr/local/opt/ffmpeg-full/bin'):
+            if os.path.isfile(os.path.join(d, 'ffmpeg')):
+                os.environ['PATH'] = d + os.pathsep + os.environ.get('PATH', '')
+                return
+        if not shutil.which('ffmpeg'):
+            for d in ('/opt/homebrew/bin', '/usr/local/bin'):
+                if os.path.isfile(os.path.join(d, 'ffmpeg')):
+                    os.environ['PATH'] = os.environ.get('PATH', '') + os.pathsep + d
+                    return
+        return
+    if os.name != 'nt' or shutil.which('ffmpeg'):
+        return
+    local = os.environ.get('LOCALAPPDATA', '')
+    places = [os.path.join(local, 'Microsoft', 'WinGet', 'Links'),
+              os.path.join(os.environ.get('ProgramFiles', ''), 'WinGet', 'Links')]
+    places += glob.glob(os.path.join(local, 'Microsoft', 'WinGet', 'Packages', 'Gyan.FFmpeg*', '*', 'bin'))
+    for d in places:
+        if os.path.isfile(os.path.join(d, 'ffmpeg.exe')):
+            os.environ['PATH'] = d + os.pathsep + os.environ.get('PATH', '')
+            return
+
+
+def utf8_output():
+    """Clip titles are often Hindi: on Windows, Python's output and files would otherwise use the old
+    Windows code page and stop on the first Hindi letter. The child process gets UTF-8 mode; this one
+    (already running) writes its output as UTF-8."""
+    os.environ.setdefault('PYTHONUTF8', '1')
+    os.environ.setdefault('PYTHONIOENCODING', 'utf-8')
+    for s in (sys.stdout, sys.stderr):
+        try:
+            s.reconfigure(encoding='utf-8', errors='replace')
+        except (AttributeError, ValueError, OSError):
+            pass                                  # pythonw (no console): cli.py logs to a file
+
+
 def in_venv():
     try:
         return Path(sys.prefix).resolve() == VENV.resolve()
@@ -28,6 +70,8 @@ def in_venv():
 
 
 if __name__ == '__main__':
+    find_ffmpeg()
+    utf8_output()
     if not in_venv():
         if not PY.exists():
             print('PostKaro is not set up yet. Run:  python install.py   (python3 on macOS/Linux)')
