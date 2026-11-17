@@ -6,6 +6,7 @@
     python run.py service on|off|status       start PostKaro by itself at login (install.py turns it on)
     python run.py serve                       run the page and helper in this terminal (normally automatic)
     python run.py link [folder | post.json]   (for ClipKaro) add a project and print its link
+    python run.py post-now <folder> [--dry]   (for ClipKaro live clipping) add a project and post it all now
 
 Windows: use  python  instead of  python3 .
 """

@@ -714,6 +714,41 @@ class TestMetaUploadErrors(unittest.TestCase):
         shutil.rmtree(clip.parent, ignore_errors=True)
 
 
+@unittest.skipUnless(HAS_FFMPEG, 'needs ffmpeg')
+class TestPostNow(Base):
+    """ClipKaro's live clipping: run.py post-now adds a project and posts every clip everywhere at once."""
+
+    def run_cli(self, path, dry=False):
+        import io
+        from argparse import Namespace
+        from contextlib import redirect_stdout
+        from unittest import mock
+        from postkaro import cli, service
+        out = io.StringIO()
+        with mock.patch.object(service, 'start_background', lambda: True), redirect_stdout(out):
+            cli.cmd_post_now(Namespace(path=str(path), dry=dry))
+        return json.loads(out.getvalue().strip().splitlines()[-1])
+
+    def test_dry_then_post_now(self):
+        self.connect_all()
+        proj = clipkaro_project(self.tmp, durations=(20, 30))
+        res = self.run_cli(proj, dry=True)
+        self.assertTrue(res['dry'])
+        self.assertEqual(len(res['would_post']), 6)                    # 2 clips x 3 platforms
+        self.assertFalse(db.rows("SELECT id FROM posts WHERE state='scheduled'"))
+        res = self.run_cli(proj)
+        self.assertEqual(res['scheduled'], 6, res)
+        rows = db.rows("SELECT state, when_utc FROM posts")
+        self.assertTrue(all(r['state'] == 'scheduled' and r['when_utc'] is None for r in rows))
+
+    def test_platform_not_connected_is_skipped(self):
+        db.save_account('youtube', 'UC1', 'My Channel')                # only YouTube
+        proj = clipkaro_project(self.tmp, durations=(20, 30))
+        res = self.run_cli(proj)
+        self.assertEqual(res['scheduled'], 2)
+        self.assertEqual({s['platform'] for s in res['skipped']}, {'facebook', 'instagram'})
+
+
 class TestWindowsAndMac(unittest.TestCase):
     """Install check for Windows and macOS: what this Linux laptop can still check."""
 

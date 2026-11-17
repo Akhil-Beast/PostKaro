@@ -62,6 +62,23 @@ def cmd_link(a):
     print(json.dumps({'ok': ok, 'link': paths.page_link(route), 'running': ok}))
 
 
+def cmd_post_now(a):
+    """For ClipKaro's live clipping: add a project and post every clip on every connected platform at once
+    (the "Post now" button for the whole batch, without opening the page). Prints one line of JSON."""
+    bid = kit.import_kit(a.path)
+    if a.dry:
+        rows = db.rows("SELECT p.platform, c.no FROM posts p JOIN clips c ON c.id=p.clip_id WHERE c.batch_id=? "
+                       "AND c.removed=0 AND p.enabled=1 AND p.state='draft'", (bid,))
+        print(json.dumps({'ok': True, 'dry': True, 'batch': bid,
+                          'would_post': [{'clip': r['no'], 'platform': r['platform']} for r in rows]}))
+        return
+    running = service.start_background()
+    from . import server
+    res = server.schedule(None, {'batch': bid, 'now': True})
+    print(json.dumps({'ok': running, 'batch': bid, 'scheduled': res['scheduled'], 'skipped': res['skipped'],
+                      'link': paths.page_link('queue')}))
+
+
 def cmd_status(a):
     s = settings.load()
     print(f'PostKaro {__version__}  ·  {"running" if service.running() else "not running"} on {paths.base_url()}'
@@ -107,6 +124,9 @@ def main(argv=None):
     o.add_argument('--no-browser', action='store_true', help='only print the link')
     lk = sub.add_parser('link', help='add a project and print its link as JSON (used by ClipKaro)')
     lk.add_argument('path', nargs='?')
+    pn = sub.add_parser('post-now', help='(for ClipKaro live clipping) add a project and post all its clips now')
+    pn.add_argument('path')
+    pn.add_argument('--dry', action='store_true', help='only show what would be posted')
     sub.add_parser('status', help='accounts, queue and helper status')
     sub.add_parser('check', help='check every connected login now')
     sv = sub.add_parser('service', help='start PostKaro by itself at login: on / off / status')
@@ -114,7 +134,7 @@ def main(argv=None):
     a = p.parse_args(argv)
     try:
         {'serve': cmd_serve, 'open': cmd_open, 'link': cmd_link, 'status': cmd_status, 'check': cmd_check,
-         'service': cmd_service}[a.cmd](a)
+         'service': cmd_service, 'post-now': cmd_post_now}[a.cmd](a)
     except ValueError as e:
         print(f'[X] {e}')
         sys.exit(1)

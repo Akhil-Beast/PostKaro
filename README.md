@@ -101,6 +101,7 @@ python3 run.py status                      accounts, queue, and whether PostKaro
 python3 run.py check                       check every login now
 python3 run.py service on | off | status   start by itself at login
 python3 run.py serve                       run it in this terminal (to see errors)
+python3 run.py post-now <folder> [--dry]   (ClipKaro live clipping) add a project and post it everywhere now
 ```
 
 ## Limits worth knowing
