@@ -89,6 +89,14 @@ def _creds(account):
     from google.auth.transport.requests import Request
     from google.oauth2.credentials import Credentials
     info = vault.get(f"youtube:{account['account_id']}")
+    if not info and os.environ.get('YOUTUBE_REFRESH_TOKEN'):
+        app = vault.get('app:google') or {}
+        info = {
+            'refresh_token': os.environ['YOUTUBE_REFRESH_TOKEN'],
+            'client_id': os.environ.get('GOOGLE_CLIENT_ID') or app.get('client_id'),
+            'client_secret': os.environ.get('GOOGLE_CLIENT_SECRET') or app.get('client_secret'),
+            'token_uri': 'https://oauth2.googleapis.com/token'
+        }
     if not info:
         raise PlatformError('The YouTube login is missing on this laptop.', login=True)
     creds = Credentials.from_authorized_user_info(info, SCOPES)
@@ -188,9 +196,17 @@ class YouTube(Platform):
         body = {'snippet': {'title': post['title'], 'description': post['body'] or '',
                             'categoryId': str(s.get('youtube_category') or '24')}, 'status': status}
         yt = _build(_creds(account))
+        clip_file = Path(post['clip']['file'])
+        if not clip_file.exists():
+            from .. import gdrive
+            dl = gdrive.ensure_local_file(post['clip']['file'])
+            if dl:
+                clip_file = Path(dl)
+            else:
+                raise PlatformError(f"Video file not found locally or in Google Drive: {post['clip']['file']}")
         req = yt.videos().insert(part='snippet,status', body=body,
                                  notifySubscribers=bool(s.get('youtube_notify_subscribers', True)),
-                                 media_body=MediaFileUpload(post['clip']['file'], mimetype='video/mp4',
+                                 media_body=MediaFileUpload(str(clip_file), mimetype='video/mp4',
                                                             chunksize=CHUNK, resumable=True))
         resp, tries = None, 0
         while resp is None:

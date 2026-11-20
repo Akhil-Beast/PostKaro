@@ -14,7 +14,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 WEB = ROOT / 'web'
-DEFAULT_PORT = 8765
+DEFAULT_PORT = int(os.environ.get('PORT', 8765))
 
 
 def _home(kind):
@@ -63,10 +63,16 @@ def app_info():
     except (OSError, ValueError):
         info = {}
     changed = False
-    if not info.get('key'):
+    if os.environ.get('POSTKARO_KEY'):
+        info['key'] = os.environ['POSTKARO_KEY']
+    elif not info.get('key'):
         info['key'], changed = secrets.token_urlsafe(24), True
-    if not info.get('port'):
+
+    if os.environ.get('PORT'):
+        info['port'] = int(os.environ['PORT'])
+    elif not info.get('port'):
         info['port'], changed = DEFAULT_PORT, True
+
     if info.get('path') != str(ROOT):
         info['path'], changed = str(ROOT), True
     if changed:
@@ -79,6 +85,10 @@ def app_info():
 
 
 def base_url():
+    if os.environ.get('RENDER_EXTERNAL_URL'):
+        return os.environ['RENDER_EXTERNAL_URL'].rstrip('/')
+    if os.environ.get('APP_URL'):
+        return os.environ['APP_URL'].rstrip('/')
     return f"http://127.0.0.1:{app_info()['port']}"
 
 

@@ -1,0 +1,36 @@
+services:
+  - type: web
+    name: postkaro
+    runtime: docker
+    plan: free
+    region: oregon
+    autoDeploy: true
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: RENDER
+        value: "true"
+      - key: ALLOWED_HOSTS
+        value: "*"
+      - key: POSTKARO_VAULT
+        value: file
+      - key: POSTKARO_HOME
+        value: /app/data
+      - key: GDRIVE_FOLDER_ID
+        value: 1ZR0GzM9uIQsjbI4zI7gMuOEU6Ju-WC1T
+      - key: GDRIVE_AUTO_SYNC
+        value: "true"
+      - key: YOUTUBE_CHANNEL_ID
+        value: UCy0VyDSK-bgz7JC-TcC7UyA
+      - key: YOUTUBE_CHANNEL_NAME
+        value: Akhil Rawat
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: YOUTUBE_REFRESH_TOKEN
+        sync: false
+      - key: GDRIVE_REFRESH_TOKEN
+        sync: false
+      - key: POSTKARO_KEY
+        sync: false

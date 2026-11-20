@@ -42,20 +42,29 @@ def key():
 
 
 def host_ok(request):
-    port = paths.app_info()['port']
-    return request.headers.get('host', '') in (f'127.0.0.1:{port}', f'localhost:{port}')
+    if os.environ.get('RENDER') or os.environ.get('ALLOWED_HOSTS') == '*':
+        return True
+    port = str(paths.app_info()['port'])
+    h = request.headers.get('host', '')
+    h_host = h.split(':')[0]
+    return (
+        h_host in ('127.0.0.1', 'localhost')
+        or h_host.startswith(('192.168.', '10.', '172.'))
+        or h_host.endswith(('.trycloudflare.com', '.onrender.com'))
+    )
 
 
 def authed(request, write=False):
     k = key()
     ok = secrets.compare_digest(request.cookies.get('pk', ''), k) or \
-        secrets.compare_digest(request.query_params.get('k', ''), k)
+        secrets.compare_digest(request.query_params.get('k', ''), k) or \
+        secrets.compare_digest(request.headers.get('x-postkaro', ''), k)
     if write:
         port = paths.app_info()['port']
         origin = request.headers.get('origin')
         ok = ok and secrets.compare_digest(request.headers.get('x-postkaro', ''), k) \
-            and (origin is None or origin in (f'http://127.0.0.1:{port}', f'http://localhost:{port}')) \
-            and request.headers.get('sec-fetch-site', 'same-origin') == 'same-origin'
+            and (origin is None or origin in (f'http://127.0.0.1:{port}', f'http://localhost:{port}') or (origin and (any(origin.startswith(p) for p in ('http://192.168.', 'http://10.', 'http://172.')) or origin.endswith(('.trycloudflare.com', '.onrender.com'))))) \
+            and request.headers.get('sec-fetch-site', 'same-origin') in ('same-origin', 'same-site')
     return ok
 
 
@@ -550,10 +559,10 @@ async def index(request: Request):
     html = (paths.WEB / 'index.html').read_text(encoding='utf-8').replace('{{KEY}}', key()) \
         .replace('{{VERSION}}', __version__)
     r = HTMLResponse(html, headers={'Cache-Control': 'no-store'})
-    r.set_cookie('pk', key(), httponly=True, samesite='strict', max_age=3600 * 24 * 365)
+    r.set_cookie('pk', key(), httponly=True, samesite='lax', max_age=3600 * 24 * 365)
     if request.query_params.get('k'):                # drop the key from the address bar (the #/page stays)
         r = RedirectResponse('/', 303)
-        r.set_cookie('pk', key(), httponly=True, samesite='strict', max_age=3600 * 24 * 365)
+        r.set_cookie('pk', key(), httponly=True, samesite='lax', max_age=3600 * 24 * 365)
     return r
 
 
@@ -561,9 +570,17 @@ async def media(request: Request):
     if not host_ok(request) or not authed(request):
         return Response('no', 403)
     c = db.one('SELECT file FROM clips WHERE id=?', (int(request.path_params['id']),))
-    if not c or not Path(c['file']).exists():
+    if not c:
         return Response('not found', 404)
-    return FileResponse(c['file'], media_type='video/mp4')
+    fp = Path(c['file'])
+    if not fp.exists():
+        from . import gdrive
+        dl = await run_in_threadpool(gdrive.ensure_local_file, c['file'])
+        if dl:
+            fp = Path(dl)
+        else:
+            return Response('not found', 404)
+    return FileResponse(str(fp), media_type='video/mp4')
 
 
 def make_thumb(cid):
@@ -571,9 +588,18 @@ def make_thumb(cid):
     import shutil
     import subprocess
     c = db.one('SELECT file FROM clips WHERE id=?', (cid,))
-    if not c or not Path(c['file']).exists() or not shutil.which('ffmpeg'):
+    if not c:
         return None
     f = Path(c['file'])
+    if not f.exists():
+        from . import gdrive
+        dl = gdrive.ensure_local_file(c['file'])
+        if dl:
+            f = Path(dl)
+        else:
+            return None
+    if not shutil.which('ffmpeg'):
+        return None
     out = paths.data_dir() / 'thumbs' / f'{cid}-{int(f.stat().st_mtime)}.jpg'
     if not out.exists():
         out.parent.mkdir(exist_ok=True)
@@ -591,6 +617,15 @@ async def thumb(request: Request):
     return FileResponse(out, media_type='image/jpeg', headers={'Cache-Control': 'max-age=86400'})
 
 
+async def gdrive_clips(request, body):
+    from . import gdrive
+    return {'clips': gdrive.list_clips(), 'folder_id': gdrive.folder_id()}
+
+
+def gdrive_sync(request, body):
+    from . import gdrive
+    return gdrive.sync_drive_to_batch()
+
 async def health(request: Request):
     return JSONResponse({'app': 'postkaro', 'version': __version__})
 
@@ -599,6 +634,20 @@ async def health(request: Request):
 async def lifespan(app):
     global WORKER
     db.connect().close()
+    if os.environ.get('YOUTUBE_REFRESH_TOKEN'):
+        try:
+            ch_id = os.environ.get('YOUTUBE_CHANNEL_ID', 'UCy0VyDSK-bgz7JC-TcC7UyA')
+            ch_name = os.environ.get('YOUTUBE_CHANNEL_NAME', 'Akhil Rawat')
+            if not db.one("SELECT account_id FROM accounts WHERE platform='youtube' AND account_id=?", (ch_id,)):
+                db.save_account('youtube', ch_id, ch_name)
+        except Exception as e:
+            print(f"Cloud startup notice: {e}")
+    if os.environ.get('GDRIVE_AUTO_SYNC', 'true').lower() in ('true', '1', 'yes'):
+        try:
+            from . import gdrive
+            await run_in_threadpool(gdrive.sync_drive_to_batch)
+        except Exception as e:
+            print(f"Cloud startup drive sync notice: {e}")
     WORKER = worker.Worker()
     WORKER.start()
     yield
@@ -628,6 +677,8 @@ def routes():
         R('/api/apps/{name}', api(delete_app), methods=['DELETE']),
         R('/api/connect/{name}', api(connect), methods=['POST']),
         R('/api/account/{platform}/{aid}/{action}', api(account_action), methods=['POST']),
+        R('/api/gdrive/clips', api(gdrive_clips)),
+        R('/api/gdrive/sync', api(gdrive_sync), methods=['POST']),
         Mount('/static', StaticFiles(directory=paths.WEB), name='static'),
     ]
 
@@ -639,4 +690,6 @@ def make_app():
 def serve():
     import uvicorn
     info = paths.app_info()
-    uvicorn.run(make_app(), host='127.0.0.1', port=int(info['port']), log_level='warning', log_config=None)
+    uvicorn.run(make_app(), host='0.0.0.0', port=int(info['port']), log_level='warning', log_config=None)
+
+app = make_app()
