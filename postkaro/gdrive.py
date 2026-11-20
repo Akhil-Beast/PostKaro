@@ -168,18 +168,15 @@ def sync_drive_to_batch():
     # Find or create a Google Drive batch
     batch = db.one("SELECT id FROM batches WHERE project='Google Drive Clips'")
     if not batch:
-        cur = db.cursor()
-        cur.execute(
+        batch_id = db.run(
             "INSERT INTO batches (kit, project, title, created) VALUES (?, ?, ?, ?)",
             ('gdrive:' + folder_id(), 'Google Drive Clips', 'Clips from Google Drive', db.iso(db.now()))
         )
-        batch_id = cur.lastrowid
-        db.commit()
     else:
         batch_id = batch['id']
 
-    existing_files = {r['file'] for r in db.all("SELECT file FROM clips WHERE batch_id=?", (batch_id,))}
-    existing_titles = {r['title'] for r in db.all("SELECT title FROM clips WHERE batch_id=?", (batch_id,))}
+    existing_files = {r['file'] for r in db.rows("SELECT file FROM clips WHERE batch_id=?", (batch_id,))}
+    existing_titles = {r['title'] for r in db.rows("SELECT title FROM clips WHERE batch_id=?", (batch_id,))}
 
     imported = 0
     next_no = db.one("SELECT COALESCE(MAX(no), 0) + 1 AS n FROM clips WHERE batch_id=?", (batch_id,))['n']
@@ -193,22 +190,18 @@ def sync_drive_to_batch():
             continue
 
         size = int(c.get('size', 0))
-        cur = db.cursor()
-        cur.execute(
+        clip_id = db.run(
             "INSERT INTO clips (batch_id, no, file, duration, size, score, title, caption) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (batch_id, next_no, ref, 30.0, size, 8.5, title, f"{title} #Shorts #Reels")
         )
-        clip_id = cur.lastrowid
         next_no += 1
 
-        # Add draft posts for youtube, instagram, facebook
         for plat in ('youtube', 'instagram', 'facebook'):
-            cur.execute(
+            db.run(
                 "INSERT INTO posts (clip_id, platform, title, body, state) VALUES (?, ?, ?, ?, 'draft')",
                 (clip_id, plat, title, f"{title}\n\n#Shorts #Viral #Gaming")
             )
-        db.commit()
         imported += 1
 
     return {
