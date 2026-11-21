@@ -629,7 +629,7 @@ async def thumb(request: Request):
     return FileResponse(out, media_type='image/jpeg', headers={'Cache-Control': 'max-age=86400'})
 
 
-async def gdrive_clips(request, body):
+def gdrive_clips(request, body):
     from . import gdrive
     return {'clips': gdrive.list_clips(), 'folder_id': gdrive.folder_id()}
 
