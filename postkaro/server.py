@@ -122,9 +122,11 @@ def clip_view(c):
     warn = []                                  # "not your video" is shown once, above all the clips
     if c['note']:
         warn.append(f"Honesty note: {c['note']}")
+    clip_file = str(c.get('file') or '')
+    exists = Path(clip_file).exists() or clip_file.startswith('gdrive:')
     return {'id': c['id'], 'no': c['no'], 'title': c['title'], 'duration': c['duration'], 'score': c['score'],
             'deep': bool(c['deep']), 'removed': bool(c['removed']), 'warnings': warn,
-            'exists': Path(c['file']).exists(), 'media': f"/media/clip/{c['id']}",
+            'exists': exists, 'media': f"/media/clip/{c['id']}",
             'thumb': cover_url(c) or f"/media/thumb/{c['id']}", 'cover': cover_url(c),
             'cover_kind': c.get('cover_kind'), 'cover_ms': c.get('cover_ms'), 'cover_text': covers.describe(c)}
 
@@ -331,7 +333,16 @@ def schedule(request, body):
         if not db.post_account(p):
             why.append(f"The {settings.NAMES[p['platform']]} account picked for it is no longer connected (Accounts page)."
                        if p.get('account') else f"{settings.NAMES[p['platform']]} is not connected (Accounts page).")
-        if not Path(p['clip']['file']).exists():
+        clip_ref = str(p['clip'].get('file') or '')
+        clip_exists = Path(clip_ref).exists() or clip_ref.startswith('gdrive:')
+        if not clip_exists:
+            from . import gdrive
+            if gdrive.get_credentials():
+                clips = gdrive.list_clips()
+                target_name = Path(clip_ref).name
+                if any(c['name'] == target_name for c in clips):
+                    clip_exists = True
+        if not clip_exists:
             why.append('The video file is gone from its folder.')
         when = db.parse(p['when_utc'])
         if when and when < db.now():

@@ -98,6 +98,17 @@ def step(pid, now, s):
             p['when'] = when
             db.update_post(pid, state='uploading', error=None, account=acc['account_id'])   # every later step uses it
             progress[pid] = 0.0
+
+            # Ensure clip file is available locally (downloads from Google Drive if needed)
+            clip_path = Path(p['clip']['file'])
+            if not clip_path.exists():
+                from . import gdrive
+                dl = gdrive.ensure_local_file(p['clip']['file'])
+                if dl:
+                    p['clip']['file'] = str(dl)
+                else:
+                    raise PlatformError(f"Video file not found locally or in Google Drive: {p['clip']['file']}")
+
             remote = plat.upload(p, acc, lambda f: progress.__setitem__(pid, max(0.0, min(1.0, f))))
             progress.pop(pid, None)
             note = remote.pop('note', None)
