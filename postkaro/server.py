@@ -788,6 +788,11 @@ async def lifespan(app):
             print(f"Cloud startup drive sync notice: {e}")
     WORKER = worker.Worker()
     WORKER.start()
+    try:
+        from . import pipeline
+        pipeline.start_background_pipeline()
+    except Exception as e:
+        print(f"Pipeline background start notice: {e}")
     yield
     WORKER.stop()
 

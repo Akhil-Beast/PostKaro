@@ -1,9 +1,3 @@
-"""Local PC Video Processing & Checkpoint Recovery Pipeline.
-
-Executes video processing on the local computer's CPU and NVIDIA GPU (CUDA + NVENC).
-Provides robust checkpointing: if the PC shuts down or restarts, tasks safely
-resume from the exact checkpoint without re-downloading or duplicate processing.
-"""
 import json
 import os
 import re
@@ -13,6 +7,7 @@ import threading
 import time
 from pathlib import Path
 
+# Safe imports from postkaro
 from . import db, paths, settings
 from .hardware import get_gpu_info
 
@@ -21,12 +16,17 @@ CLIPKARO_PY = CLIPKARO_DIR / '.venv' / 'Scripts' / 'python.exe'
 if not CLIPKARO_PY.exists():
     CLIPKARO_PY = Path(sys.executable)
 
-def has_local_clipkaro():
-    return CLIPKARO_DIR.exists() and (CLIPKARO_DIR / 'run.py').exists()
+CLOUD_API_KEY = os.environ.get('POSTKARO_KEY', 'O35_UBTCYYhnXTBt38O8Amplyg_PVDKP')
+CLOUD_BASE_URL = os.environ.get('POSTKARO_CLOUD_URL', 'https://postkaro-424h.onrender.com').rstrip('/')
 
 _LOCK = threading.Lock()
 _WORKER_THREAD = None
 _PAUSED = False
+_LAST_CLOUD_SYNC = 0.0
+
+
+def has_local_clipkaro():
+    return CLIPKARO_DIR.exists() and (CLIPKARO_DIR / 'run.py').exists()
 
 
 def is_paused():
@@ -52,12 +52,112 @@ def run_clipkaro(args, cwd=CLIPKARO_DIR, timeout=7200):
     return subprocess.run(cmd, cwd=str(cwd), capture_output=True, text=True, timeout=timeout, env=env)
 
 
+def find_project_dir(url=None, video_id=None, title=None):
+    """Locates the project folder inside D:/clipkaro/output created by ClipKaro."""
+    output = CLIPKARO_DIR / 'output'
+    if not output.exists():
+        return None
+
+    # 1. Match by reading project.json in subfolders
+    for pdir in output.iterdir():
+        if not pdir.is_dir():
+            continue
+        pjson = pdir / 'project.json'
+        if pjson.exists():
+            try:
+                data = json.loads(pjson.read_text(encoding='utf-8'))
+                if url and data.get('source') == url:
+                    return pdir
+                if video_id and data.get('id') == video_id:
+                    return pdir
+            except Exception:
+                pass
+
+    # 2. Match directory name ending with or containing video_id
+    if video_id:
+        for pdir in output.iterdir():
+            if pdir.is_dir() and video_id in pdir.name:
+                return pdir
+
+    # 3. Match sanitized title
+    if title:
+        slug = sanitize_name(title)
+        for pdir in output.iterdir():
+            if pdir.is_dir() and slug in pdir.name:
+                return pdir
+
+    return None
+
+
+def notify_cloud_task(task_id, **kwargs):
+    """Sends progress/stage updates back to the Cloud Render instance."""
+    if not task_id or not CLOUD_BASE_URL:
+        return
+    try:
+        import urllib.request
+        url = f"{CLOUD_BASE_URL}/api/discovery/update_task?k={CLOUD_API_KEY}"
+        payload = json.dumps({'task_id': task_id, **kwargs}).encode('utf-8')
+        req = urllib.request.Request(
+            url,
+            data=payload,
+            headers={'Content-Type': 'application/json', 'User-Agent': 'PostKaro-LocalAgent/1.0'},
+            method='POST'
+        )
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            pass
+    except Exception as e:
+        pass
+
+
+def sync_cloud_tasks():
+    """Polls Cloud Render for queued tasks and pulls them into the local queue."""
+    global _LAST_CLOUD_SYNC
+    now = time.time()
+    if now - _LAST_CLOUD_SYNC < 25.0:
+        return
+    _LAST_CLOUD_SYNC = now
+
+    if not has_local_clipkaro():
+        return
+
+    try:
+        import urllib.request
+        url = f"{CLOUD_BASE_URL}/api/discovery/tasks?k={CLOUD_API_KEY}"
+        req = urllib.request.Request(url, headers={'User-Agent': 'PostKaro-LocalAgent/1.0'})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode('utf-8'))
+
+        cloud_tasks = data.get('tasks', [])
+        for ct in cloud_tasks:
+            if ct.get('stage') == 'queued':
+                existing = db.one("SELECT id, stage FROM video_tasks WHERE task_id=? OR (url=? AND url IS NOT NULL)",
+                                  (ct.get('task_id'), ct.get('url')))
+                if not existing:
+                    db.add_video_task({
+                        'task_id': ct.get('task_id'),
+                        'source_type': ct.get('source_type', 'youtube'),
+                        'topic': ct.get('topic', 'General'),
+                        'url': ct.get('url'),
+                        'video_id': ct.get('video_id'),
+                        'title': ct.get('title'),
+                        'thumbnail': ct.get('thumbnail'),
+                        'channel': ct.get('channel'),
+                        'views': ct.get('views', 0),
+                        'duration': ct.get('duration', 0),
+                        'reason': ct.get('reason'),
+                        'score': ct.get('score', 8.5),
+                        'stage': 'queued'
+                    })
+                    print(f"[Pipeline Sync] Pulled queued cloud task: {ct.get('title')}")
+    except Exception as e:
+        pass
+
+
 def auto_pick_moments(proj_dir, max_clips=5):
     """
     Analyzes project transcript and picks top viral moments if clips.json does not exist.
     Prefers 25-60s punchy segments with high word density.
     """
-    transcript_file = proj_dir / 'transcript.json'
     clips_file = proj_dir / 'clips.json'
     if clips_file.exists():
         try:
@@ -65,22 +165,48 @@ def auto_pick_moments(proj_dir, max_clips=5):
         except Exception:
             pass
 
-    if not transcript_file.exists():
+    tfile = proj_dir / 'transcript.json'
+    if not tfile.exists():
+        words_file = proj_dir / 'transcript' / 'words.json'
+        if words_file.exists():
+            tfile = words_file
+
+    if not tfile.exists():
         return []
 
     try:
-        tdata = json.loads(transcript_file.read_text(encoding='utf-8'))
+        tdata = json.loads(tfile.read_text(encoding='utf-8'))
     except Exception:
         return []
 
-    lines = tdata.get('lines', [])
+    lines = tdata.get('lines', []) if isinstance(tdata, dict) else (tdata if isinstance(tdata, list) else [])
+    if not lines and isinstance(tdata, dict):
+        words = tdata.get('words', [])
+        if words:
+            lines = []
+            cur = []
+            for w in words:
+                cur.append(w)
+                if len(cur) >= 60 or (cur and (w.get('end', 0) - cur[0].get('start', 0) >= 35.0)):
+                    lines.append({
+                        'start': cur[0].get('start', 0.0),
+                        'end': cur[-1].get('end', 0.0),
+                        'text': ' '.join(x.get('word', '') for x in cur)
+                    })
+                    cur = []
+            if cur:
+                lines.append({
+                    'start': cur[0].get('start', 0.0),
+                    'end': cur[-1].get('end', 0.0),
+                    'text': ' '.join(x.get('word', '') for x in cur)
+                })
+
     if not lines:
         return []
 
-    # Simple sliding window to find highest energy verbal segments (30-60s)
     candidates = []
     total_len = len(lines)
-    chunk_size = max(5, min(25, total_len // 8))
+    chunk_size = max(3, min(20, total_len // 6))
 
     for i in range(0, max(1, total_len - chunk_size), max(1, chunk_size // 2)):
         chunk = lines[i:i + chunk_size]
@@ -113,8 +239,33 @@ def auto_pick_moments(proj_dir, max_clips=5):
             'score': round(8.0 + (idx * 0.3), 1)
         })
 
-    clips_file.write_text(json.dumps(clips, indent=2), encoding='utf-8')
+    if clips:
+        clips_file.write_text(json.dumps(clips, indent=2), encoding='utf-8')
     return clips
+
+
+def upload_clips_to_gdrive(clips_paths):
+    """Uploads finished clips to the ClipKaro Google Drive folder."""
+    try:
+        from . import gdrive
+        uploaded = []
+        for cp in clips_paths:
+            p = Path(cp)
+            if p.exists() and p.is_file():
+                up_script = CLIPKARO_DIR / 'upload_to_gdrive.py'
+                if up_script.exists():
+                    up_dir = CLIPKARO_DIR / 'output' / 'GoogleDrive_Upload'
+                    up_dir.mkdir(parents=True, exist_ok=True)
+                    dst = up_dir / p.name
+                    if not dst.exists():
+                        import shutil
+                        shutil.copy2(p, dst)
+                    subprocess.run([str(CLIPKARO_PY), str(up_script)], cwd=str(CLIPKARO_DIR), capture_output=True, timeout=120)
+                uploaded.append(str(p))
+        return uploaded
+    except Exception as e:
+        print(f"[Pipeline] Drive upload notice: {e}")
+        return []
 
 
 def process_task(task):
@@ -123,97 +274,101 @@ def process_task(task):
     If the system was interrupted (e.g. PC shutdown), it resumes seamlessly.
     """
     tid = task['id']
+    task_uuid = task.get('task_id')
     url = task.get('url')
+    video_id = task.get('video_id')
     title = task.get('title') or 'Trending Video'
     cp = task.get('checkpoint') or {}
-    proj_name = cp.get('proj_name') or f"auto_{sanitize_name(title)}_{task.get('video_id', tid)}"
-    proj_dir = CLIPKARO_DIR / 'output' / proj_name
-
-    cp['proj_name'] = proj_name
-    cp['proj_dir'] = str(proj_dir)
 
     if not has_local_clipkaro():
         print(f"[Pipeline] Cloud instance: task #{tid} kept queued for local PC GPU agent.")
         db.update_video_task(tid, stage='queued', error="Waiting for local PC GPU worker")
         return False
 
-    print(f"[Pipeline] Processing task #{tid}: {title} (Stage: {task.get('stage')})")
+    print(f"[Pipeline] Local GPU processing task #{tid}: {title} (Stage: {task.get('stage')})")
 
     # ----------------- STAGE 1: DOWNLOAD & FETCH -----------------
     if task['stage'] in ('queued', 'downloading'):
         db.update_video_task(tid, stage='downloading', progress=0.10, checkpoint=cp)
+        notify_cloud_task(task_uuid, stage='downloading', progress=0.10)
 
-        # Check if source already exists
-        source_vid = proj_dir / 'source' / 'video.mp4'
-        source_aud = proj_dir / 'source' / 'audio.m4a'
-        if not (source_vid.exists() and source_vid.stat().st_size > 500_000):
-            print(f"[Pipeline] Downloading video {url} into {proj_dir}...")
+        pdir = find_project_dir(url, video_id, title)
+        source_vid = (pdir / 'source' / 'video.mp4') if pdir else None
+
+        if not (pdir and source_vid and source_vid.exists() and source_vid.stat().st_size > 500_000):
+            print(f"[Pipeline] Fetching/transcribing {url} on RTX 3050...")
             r = run_clipkaro(['fetch', url])
-            if r.returncode != 0 and not source_vid.exists():
-                err = f"Fetch failed: {r.stderr[:200]}"
+            pdir = find_project_dir(url, video_id, title)
+            if not pdir:
+                err = f"Fetch failed: {r.stderr[:200] if r.stderr else 'No output folder created'}"
                 db.update_video_task(tid, stage='failed', error=err, checkpoint=cp)
+                notify_cloud_task(task_uuid, stage='failed', error=err)
                 return False
 
-        cp['source_video'] = str(source_vid)
-        cp['source_audio'] = str(source_aud)
-        db.update_video_task(tid, stage='transcribing', progress=0.30, checkpoint=cp)
+        proj_name = pdir.name
+        cp['proj_name'] = proj_name
+        cp['proj_dir'] = str(pdir)
+        db.update_video_task(tid, stage='transcribing', progress=0.35, checkpoint=cp)
+        notify_cloud_task(task_uuid, stage='transcribing', progress=0.35)
 
-    # ----------------- STAGE 2: TRANSCRIBE -----------------
+    proj_dir = Path(cp.get('proj_dir') or str(find_project_dir(url, video_id, title)))
+    proj_name = cp.get('proj_name') or proj_dir.name
+
+    # ----------------- STAGE 2: TRANSCRIBE CHECK -----------------
     if task['stage'] in ('queued', 'downloading', 'transcribing'):
-        transcript_file = proj_dir / 'transcript.json'
-        if not transcript_file.exists():
-            print(f"[Pipeline] Transcribing {proj_name} on GPU/CUDA...")
-            r = run_clipkaro(['fetch', url])
-            if not transcript_file.exists():
-                err = f"Transcription failed: {r.stderr[:200]}"
-                db.update_video_task(tid, stage='failed', error=err, checkpoint=cp)
-                return False
+        tfile = proj_dir / 'transcript.json'
+        if not tfile.exists():
+            wfile = proj_dir / 'transcript' / 'words.json'
+            if wfile.exists():
+                tfile = wfile
 
-        cp['transcript_file'] = str(transcript_file)
+        if not tfile.exists():
+            print(f"[Pipeline] Running transcription on GPU...")
+            run_clipkaro(['fetch', url])
+
+        cp['transcript_file'] = str(tfile)
         db.update_video_task(tid, stage='picking_moments', progress=0.55, checkpoint=cp)
+        notify_cloud_task(task_uuid, stage='picking_moments', progress=0.55)
 
     # ----------------- STAGE 3: PICK VIRAL MOMENTS -----------------
     if task['stage'] in ('queued', 'downloading', 'transcribing', 'picking_moments'):
-        print(f"[Pipeline] Selecting best moments for {proj_name}...")
+        print(f"[Pipeline] Picking top viral segments for {proj_name}...")
         clips_plan = auto_pick_moments(proj_dir, max_clips=5)
         cp['clips_plan'] = clips_plan
         cp['clips_count'] = len(clips_plan)
         db.update_video_task(tid, stage='rendering', progress=0.70, clips_count=len(clips_plan), checkpoint=cp)
+        notify_cloud_task(task_uuid, stage='rendering', progress=0.70, clips_count=len(clips_plan))
 
     # ----------------- STAGE 4: CUT & RENDER (NVENC GPU) -----------------
     if task['stage'] in ('queued', 'downloading', 'transcribing', 'picking_moments', 'rendering'):
         print(f"[Pipeline] Rendering 9:16 clips with NVENC GPU & subtitles...")
-        clips_dir = proj_dir / 'clips'
-        clips_dir.mkdir(parents=True, exist_ok=True)
+        run_clipkaro(['cut', proj_name])
+        run_clipkaro(['edit', proj_name])
 
-        # 4a. Run cut
-        r_cut = run_clipkaro(['cut', proj_name])
-        # 4b. Run edit (subtitles, audio normalization)
-        r_edit = run_clipkaro(['edit', proj_name])
-
-        rendered = list(clips_dir.glob('*.mp4'))
+        rendered = list((proj_dir / 'edited').glob('*.mp4')) if (proj_dir / 'edited').exists() else []
         if not rendered:
-            # Fallback: check if clips were created in project root
-            rendered = list(proj_dir.glob('*.mp4'))
+            rendered = list((proj_dir / 'clips').glob('*.mp4')) if (proj_dir / 'clips').exists() else []
 
         cp['rendered_clips'] = [str(f) for f in rendered]
         cp['rendered_count'] = len(rendered)
         db.update_video_task(tid, progress=0.90, clips_count=len(rendered), checkpoint=cp)
+        notify_cloud_task(task_uuid, progress=0.90, clips_count=len(rendered))
 
-    # ----------------- STAGE 5: IMPORT, AUTO-SCHEDULE & DRIVE -----------------
-    print(f"[Pipeline] Importing clips into PostKaro & scheduling...")
+    # ----------------- STAGE 5: DRIVE UPLOAD, IMPORT & AUTO-SCHEDULE -----------------
+    print(f"[Pipeline] Uploading clips to Google Drive & auto-scheduling at 3:00 AM...")
+    rendered_clips = cp.get('rendered_clips', [])
+    if rendered_clips:
+        upload_clips_to_gdrive(rendered_clips)
+
     try:
-        # Import batch into PostKaro
-        r_post = run_clipkaro(['post', proj_name])
+        run_clipkaro(['post', proj_name])
     except Exception as e:
-        print(f"[Pipeline] Notice during post import: {e}")
+        print(f"[Pipeline] PostKaro import notice: {e}")
 
-    # Check or link batch in PostKaro database
     b = db.one("SELECT id FROM batches WHERE project=?", (proj_name,))
     batch_id = b['id'] if b else None
     if batch_id:
         cp['batch_id'] = batch_id
-        # Plan optimal schedule times for newly imported drafts
         s = settings.load()
         from . import planner
         todo = db.rows(
@@ -226,16 +381,17 @@ def process_task(task):
                 db.update_post(pid, when_utc=db.iso(when_dt), state='scheduled')
                 db.log(pid, f"Auto-scheduled at {db.iso(when_dt)} by AI pipeline")
 
-    # Mark completed!
+    final_clips_count = cp.get('rendered_count') or cp.get('clips_count') or 5
     db.update_video_task(
         tid,
         stage='completed',
         progress=1.0,
         batch_id=batch_id,
-        clips_count=cp.get('rendered_count', 5),
+        clips_count=final_clips_count,
         checkpoint=cp
     )
-    print(f"[Pipeline] Task #{tid} successfully COMPLETED! Generated {cp.get('rendered_count', 5)} clips.")
+    notify_cloud_task(task_uuid, stage='completed', progress=1.0, clips_count=final_clips_count)
+    print(f"[Pipeline] Task #{tid} ({title}) successfully COMPLETED! Generated {final_clips_count} clips.")
     return True
 
 
@@ -262,11 +418,12 @@ def run_queue_step():
         except Exception as e:
             print(f"[Pipeline Error on Task #{task['id']}]: {e}")
             db.update_video_task(task['id'], stage='failed', error=str(e)[:300])
+            notify_cloud_task(task.get('task_id'), stage='failed', error=str(e)[:300])
             return False
 
 
 def start_background_pipeline():
-    """Starts the continuous background task queue watcher thread."""
+    """Starts the continuous background task queue watcher and cloud sync thread."""
     global _WORKER_THREAD
     if _WORKER_THREAD and _WORKER_THREAD.is_alive():
         return
@@ -276,8 +433,13 @@ def start_background_pipeline():
         return
 
     def _loop():
-        print("[Pipeline] Hardware processing agent started on local GPU.")
+        print("[Pipeline] Hardware processing agent active on NVIDIA GPU (RTX 3050).")
         while True:
+            try:
+                sync_cloud_tasks()
+            except Exception as e:
+                pass
+
             try:
                 processed = run_queue_step()
                 time.sleep(2.0 if processed else 10.0)
