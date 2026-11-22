@@ -1009,7 +1009,7 @@ async function discoverPage() {
         <div class="disco-search-row">
           <div class="input-icon" style="flex:1;">
             ${icon('search')}
-            <input id="disco-input" class="input" placeholder="e.g. Gym Motivation, Mechanical Engineering, or https://youtube.com/watch?v=..." autocomplete="off" spellcheck="false" required>
+            <input id="disco-query" class="input" placeholder="e.g. Gym Motivation, Mechanical Engineering, or https://youtube.com/watch?v=..." autocomplete="off" spellcheck="false" required>
           </div>
           <button class="btn btn-primary" id="disco-search-btn" type="submit">
             ${icon('wand-sparkles')}<span>Find Top 10 Videos</span>
@@ -1017,7 +1017,7 @@ async function discoverPage() {
         </div>
         <div class="disco-topics">
           <span class="disco-topics-label">Trending topics:</span>
-          ${PRESET_TOPICS.map(t => `<button type="button" class="chip chip-btn" data-topic="${esc(t)}">${esc(t)}</button>`).join('')}
+          ${PRESET_TOPICS.map(t => `<button type="button" class="chip chip-btn disco-chip" data-topic="${esc(t)}">${esc(t)}</button>`).join('')}
         </div>
       </form>
 
@@ -1054,7 +1054,7 @@ async function discoverPage() {
   // Topic chip click handlers
   $$('[data-topic]').forEach(chip => {
     chip.onclick = () => {
-      $('#disco-input').value = chip.dataset.topic;
+      const inp = $('#disco-query') || $('#disco-input'); if (inp) inp.value = chip.dataset.topic;
       $('#disco-search-form').requestSubmit();
     };
   });
@@ -1062,7 +1062,7 @@ async function discoverPage() {
   // Search submission
   $('#disco-search-form').onsubmit = async e => {
     e.preventDefault();
-    const query = $('#disco-input').value.trim();
+    const query = ($('#disco-query') || $('#disco-input')).value.trim();
     if (!query) return;
 
     $('#disco-loading').style.display = 'block';
