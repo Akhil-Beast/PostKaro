@@ -230,6 +230,7 @@ async function loadState() {
 const ROUTES = [
   [/^#?\/?$/, 'post', home], [/^#\/post\/(\d+)$/, 'post', batchPage], [/^#\/queue$/, 'queue', queuePage],
   [/^#\/posted$/, 'posted', postedPage], [/^#\/accounts$/, 'accounts', accountsPage],
+  [/^#\/discover$/, 'discover', discoverPage], [/^#\/dashboard$/, 'dashboard', dashboardPage],
 ];
 async function route() {
   clearInterval(timer);
@@ -963,6 +964,649 @@ async function connect(name, btn) {
       if (location.hash !== '#/accounts') return;
     }
   } catch (e) { toast(e.message, 'bad'); }
+}
+
+
+// ---------------------------------------------------------------- AI Discover & Processing
+
+let discoveryResults = [];
+
+async function discoverPage() {
+  const PRESET_TOPICS = ['Gym Motivation', 'Fitness & Calisthenics', 'Artificial Intelligence', 'Technology & Gadgets', 'Mechanical Engineering', 'Coding & Python', 'Finance & Investing'];
+
+  $('#main').innerHTML = `
+    <div class="page-head">
+      <div>
+        <h1>AI Discover & Video Clipping</h1>
+        <p class="lead">Search trending YouTube topics or paste a video URL. AI selects the top 10 moments, generates 9:16 vertical clips on your local hardware, and auto-schedules them.</p>
+      </div>
+    </div>
+
+    <div class="disco-container">
+      <form id="disco-search-form" class="disco-search-card">
+        <label class="field-label" for="disco-input">Enter YouTube URL or Topic / Keyword</label>
+        <div class="disco-search-row">
+          <div class="input-icon" style="flex:1;">
+            ${icon('search')}
+            <input id="disco-input" class="input" placeholder="e.g. Gym Motivation, Mechanical Engineering, or https://youtube.com/watch?v=..." autocomplete="off" spellcheck="false" required>
+          </div>
+          <button class="btn btn-primary" id="disco-search-btn" type="submit">
+            ${icon('wand-sparkles')}<span>Find Top 10 Videos</span>
+          </button>
+        </div>
+        <div class="disco-topics">
+          <span class="disco-topics-label">Trending topics:</span>
+          ${PRESET_TOPICS.map(t => `<button type="button" class="chip chip-btn" data-topic="${esc(t)}">${esc(t)}</button>`).join('')}
+        </div>
+      </form>
+
+      <div id="disco-loading" class="disco-loading" style="display:none;">
+        <div class="disco-spinner-box">
+          ${icon('loader-circle', 36, 'spin')}
+          <h3 id="disco-status-text">Analyzing YouTube Trends & Video Engagement...</h3>
+          <p class="muted">Scoring speech clarity, view velocity, and viral potential on NVIDIA RTX GPU...</p>
+        </div>
+      </div>
+
+      <div id="disco-results-section" style="display:none;">
+        <div class="section-head" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+          <h2>Top 10 Video Candidates <span class="count-label" id="disco-results-count">10</span></h2>
+          <button class="btn btn-primary" id="disco-queue-all-btn">
+            ${icon('zap')}<span>Queue All 10 Videos</span>
+          </button>
+        </div>
+        <div class="disco-grid" id="disco-grid"></div>
+      </div>
+
+      <div class="disco-queue-section">
+        <div class="section-head" style="display:flex; justify-content:space-between; align-items:center;">
+          <h2>Hardware Processing Queue</h2>
+          <span class="badge info" id="disco-queue-badge">Local GPU Worker Active</span>
+        </div>
+        <div id="disco-tasks-list">
+          <p class="muted">Loading queue...</p>
+        </div>
+      </div>
+    </div>
+  `;
+
+  // Topic chip click handlers
+  $$('[data-topic]').forEach(chip => {
+    chip.onclick = () => {
+      $('#disco-input').value = chip.dataset.topic;
+      $('#disco-search-form').requestSubmit();
+    };
+  });
+
+  // Search submission
+  $('#disco-search-form').onsubmit = async e => {
+    e.preventDefault();
+    const query = $('#disco-input').value.trim();
+    if (!query) return;
+
+    $('#disco-loading').style.display = 'block';
+    $('#disco-results-section').style.display = 'none';
+    const btn = $('#disco-search-btn');
+
+    try {
+      await busy(btn, async () => {
+        const res = await api('/discovery/search', 'POST', {query});
+        discoveryResults = res.videos || res.results || [];
+        renderDiscoveryResults(discoveryResults, query);
+      });
+    } catch (err) {
+      toast(err.message, 'bad');
+    } finally {
+      $('#disco-loading').style.display = 'none';
+    }
+  };
+
+  // Queue All button
+  $('#disco-queue-all-btn').onclick = async () => {
+    if (!discoveryResults.length) return;
+    const btn = $('#disco-queue-all-btn');
+    try {
+      await busy(btn, async () => {
+        await api('/discovery/queue', 'POST', {videos: discoveryResults});
+        toast(`Queued ${discoveryResults.length} videos for local processing!`, 'ok');
+        await loadDiscoveryTasks();
+      });
+    } catch (err) {
+      toast(err.message, 'bad');
+    }
+  };
+
+  // Initial load of processing queue
+  await loadDiscoveryTasks();
+
+  // Polling for queue tasks
+  timer = setInterval(() => {
+    loadDiscoveryTasks().catch(() => {});
+  }, 4000);
+}
+
+function renderDiscoveryResults(videos, query) {
+  const container = $('#disco-grid');
+  const section = $('#disco-results-section');
+  $('#disco-results-count').textContent = videos.length;
+
+  if (!videos.length) {
+    container.innerHTML = `<div class="empty"><h3>No videos found</h3><p>Try another topic or enter a direct YouTube URL.</p></div>`;
+    section.style.display = 'block';
+    return;
+  }
+
+  container.innerHTML = videos.map((v, idx) => `
+    <div class="disco-card" data-video-id="${esc(v.video_id)}">
+      <div class="disco-card-media">
+        <img class="disco-thumb" src="${esc(v.thumbnail)}" alt="${esc(v.title)}" loading="lazy">
+        <span class="disco-dur">${fmtDur(v.duration)}</span>
+        <span class="disco-rank">#${idx + 1}</span>
+      </div>
+      <div class="disco-card-body">
+        <div class="disco-score-pill">
+          ${icon('flame', 14)} <span>Viral Score: <b>${v.score}/10</b></span>
+        </div>
+        <h3 class="disco-title"><a href="${esc(v.url)}" target="_blank" rel="noopener">${esc(v.title)}</a></h3>
+        <div class="disco-meta">
+          <span>${esc(v.channel)}</span> · <span>${Number(v.view_count || 0).toLocaleString()} views</span>
+        </div>
+        <div class="disco-reason">
+          ${icon('wand-sparkles', 13)}
+          <span>${esc(v.reason)}</span>
+        </div>
+        <div class="disco-card-foot">
+          <button class="btn btn-sm btn-primary disco-queue-btn" data-qidx="${idx}">
+            ${icon('plus', 14)}<span>Queue Video</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  `).join('');
+
+  $$('.disco-queue-btn').forEach(b => {
+    b.onclick = async () => {
+      const idx = Number(b.dataset.qidx);
+      const v = videos[idx];
+      try {
+        await busy(b, async () => {
+          await api('/discovery/queue', 'POST', {video: v});
+          toast(`Queued "${v.title.slice(0, 30)}..." for processing!`, 'ok');
+          b.disabled = true;
+          b.innerHTML = `${icon('check', 14)}<span>Queued</span>`;
+          await loadDiscoveryTasks();
+        });
+      } catch (err) {
+        toast(err.message, 'bad');
+      }
+    };
+  });
+
+  section.style.display = 'block';
+  section.scrollIntoView({behavior: 'smooth'});
+}
+
+async function loadDiscoveryTasks() {
+  const box = $('#disco-tasks-list');
+  if (!box) return;
+  try {
+    const res = await api('/discovery/tasks');
+    const tasks = res.tasks || [];
+    if (!tasks.length) {
+      box.innerHTML = `<p class="muted">No videos in processing queue. Search a topic or paste a URL above to start clipping!</p>`;
+      return;
+    }
+
+    box.innerHTML = `
+      <div class="task-table-wrap">
+        <table class="task-table">
+          <thead>
+            <tr>
+              <th>Video</th>
+              <th>Topic</th>
+              <th>Status</th>
+              <th>Stage</th>
+              <th>Progress</th>
+              <th>Clips</th>
+              <th>Hardware</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${tasks.map(t => {
+              const pct = Math.round(t.progress || 0);
+              const statusBadges = {
+                pending: '<span class="badge">Pending</span>',
+                processing: '<span class="badge info">' + icon('loader-circle', 13, 'spin') + 'Processing</span>',
+                completed: '<span class="badge ok">' + icon('circle-check', 13) + 'Completed</span>',
+                failed: '<span class="badge bad">' + icon('circle-x', 13) + 'Failed</span>',
+                paused: '<span class="badge warn">Paused</span>'
+              };
+              return `
+                <tr>
+                  <td class="task-cell-video">
+                    <div style="display:flex; align-items:center; gap:0.6rem;">
+                      ${t.thumbnail ? `<img src="${esc(t.thumbnail)}" class="task-thumb" alt="">` : ''}
+                      <div>
+                        <div class="task-video-title">${esc(t.title || t.video_id)}</div>
+                        <small class="muted">${t.video_id}</small>
+                      </div>
+                    </div>
+                  </td>
+                  <td><span class="chip">${esc(t.topic || 'General')}</span></td>
+                  <td>${statusBadges[t.status] || `<span class="badge">${esc(t.status)}</span>`}</td>
+                  <td><code>${esc(t.stage || 'queued')}</code></td>
+                  <td>
+                    <div class="pbar-track">
+                      <div class="pbar-fill" style="width:${pct}%;"></div>
+                    </div>
+                    <small class="num">${pct}%</small>
+                  </td>
+                  <td><b>${t.clips_created || 0}</b></td>
+                  <td><small class="muted">${esc(t.device || 'GPU NVENC')}</small></td>
+                  <td>
+                    ${t.status === 'processing' ? `<button class="btn btn-sm btn-ghost" data-task-act="pause" data-tid="${t.task_id}">Pause</button>` : ''}
+                    ${t.status === 'paused' ? `<button class="btn btn-sm btn-primary" data-task-act="resume" data-tid="${t.task_id}">Resume</button>` : ''}
+                    ${t.status === 'failed' ? `<button class="btn btn-sm" data-task-act="resume" data-tid="${t.task_id}">Retry</button>` : ''}
+                  </td>
+                </tr>
+              `;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+
+    $$('[data-task-act]').forEach(b => {
+      b.onclick = async () => {
+        const act = b.dataset.taskAct;
+        const tid = b.dataset.tid;
+        try {
+          await busy(b, () => api(`/pipeline/${act}`, 'POST', {task_id: tid}));
+          toast(`Task ${act}d.`, 'ok');
+          loadDiscoveryTasks();
+        } catch (e) {
+          toast(e.message, 'bad');
+        }
+      };
+    });
+  } catch (err) {
+    // Silent on network blip
+  }
+}
+
+// ---------------------------------------------------------------- Status Dashboard
+
+async function dashboardPage() {
+  $('#main').innerHTML = `
+    <div class="page-head">
+      <div>
+        <h1>Status Dashboard</h1>
+        <p class="lead">Live hardware telemetry, video processing pipeline monitor, and multi-platform publishing analytics.</p>
+      </div>
+      <div class="page-actions">
+        <span class="telemetry-pill" id="agent-status-pill">
+          <span class="status-dot green"></span>
+          <span id="agent-status-label">Local Agent Online</span>
+        </span>
+      </div>
+    </div>
+
+    <!-- Live Telemetry & Hardware Cards -->
+    <div class="telemetry-grid">
+      <div class="card tele-card">
+        <div class="tele-head">
+          <span class="tele-title">${icon('cpu')} CPU Utilization</span>
+          <span class="tele-val" id="tele-cpu-val">--%</span>
+        </div>
+        <div class="pbar-track"><div class="pbar-fill" id="tele-cpu-bar" style="width:0%;"></div></div>
+        <div class="tele-sub" id="tele-cpu-sub">Detecting cores...</div>
+      </div>
+
+      <div class="card tele-card">
+        <div class="tele-head">
+          <span class="tele-title">${icon('zap')} NVIDIA RTX GPU</span>
+          <span class="tele-val" id="tele-gpu-val">--%</span>
+        </div>
+        <div class="pbar-track"><div class="pbar-fill gpu-bar" id="tele-gpu-bar" style="width:0%;"></div></div>
+        <div class="tele-sub" id="tele-gpu-sub">NVENC & CUDA Hardware Encoding</div>
+      </div>
+
+      <div class="card tele-card">
+        <div class="tele-head">
+          <span class="tele-title">${icon('activity')} RAM Memory</span>
+          <span class="tele-val" id="tele-ram-val">--%</span>
+        </div>
+        <div class="pbar-track"><div class="pbar-fill" id="tele-ram-bar" style="width:0%;"></div></div>
+        <div class="tele-sub" id="tele-ram-sub">-- / -- GB</div>
+      </div>
+
+      <div class="card tele-card">
+        <div class="tele-head">
+          <span class="tele-title">${icon('folder-open')} D: Drive Storage</span>
+          <span class="tele-val" id="tele-disk-val">-- GB free</span>
+        </div>
+        <div class="pbar-track"><div class="pbar-fill" id="tele-disk-bar" style="width:0%;"></div></div>
+        <div class="tele-sub" id="tele-disk-sub">Clips & Cache Storage</div>
+      </div>
+    </div>
+
+    <!-- Live Active Processing Banner -->
+    <div id="live-processing-banner" class="active-proc-banner" style="display:none;">
+      <div class="active-proc-icon">${icon('loader-circle', 28, 'spin')}</div>
+      <div class="active-proc-body">
+        <div class="active-proc-head">
+          <span class="badge info">Live Processing</span>
+          <h3 id="active-task-title">Processing video...</h3>
+        </div>
+        <div class="active-proc-meta">
+          <span>Stage: <b id="active-task-stage">downloading</b></span> ·
+          <span>Clips: <b id="active-task-clips">0</b></span> ·
+          <span>Device: <b id="active-task-device">NVIDIA NVENC</b></span>
+        </div>
+        <div class="pbar-track" style="margin-top:0.5rem;"><div class="pbar-fill" id="active-task-bar" style="width:0%;"></div></div>
+      </div>
+    </div>
+
+    <!-- KPI Statistics 6-pack -->
+    <div class="kpi-grid">
+      <div class="kpi-card">
+        <div class="kpi-num" id="kpi-videos">0</div>
+        <div class="kpi-label">Videos Selected</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-num ok" id="kpi-clips">0</div>
+        <div class="kpi-label">Clips Generated</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-num ok" id="kpi-posted">0</div>
+        <div class="kpi-label">Posted Live</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-num info" id="kpi-scheduled">0</div>
+        <div class="kpi-label">Scheduled / Pending</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-num" id="kpi-processing">0</div>
+        <div class="kpi-label">Processing Now</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-num bad" id="kpi-failed">0</div>
+        <div class="kpi-label">Failed Uploads</div>
+      </div>
+    </div>
+
+    <!-- Charts Section -->
+    <div class="charts-grid">
+      <div class="card chart-card">
+        <div class="card-head">
+          <h3>Daily Uploads Activity</h3>
+          <span class="muted">Past 7 days</span>
+        </div>
+        <div id="chart-daily-uploads" class="chart-box">
+          <svg class="chart-svg" viewBox="0 0 500 160" id="svg-daily"></svg>
+        </div>
+      </div>
+
+      <div class="card chart-card">
+        <div class="card-head">
+          <h3>Platform Distribution</h3>
+          <span class="muted">Live & Scheduled</span>
+        </div>
+        <div id="chart-platforms" class="chart-box-plat">
+          <div class="plat-row">
+            <span class="plat-lbl">${icon('youtube')} YouTube Shorts</span>
+            <div class="pbar-track"><div class="pbar-fill yt" id="plat-bar-yt" style="width:0%;"></div></div>
+            <span class="plat-count num" id="plat-val-yt">0</span>
+          </div>
+          <div class="plat-row">
+            <span class="plat-lbl">${icon('instagram')} Instagram Reels</span>
+            <div class="pbar-track"><div class="pbar-fill ig" id="plat-bar-ig" style="width:0%;"></div></div>
+            <span class="plat-count num" id="plat-val-ig">0</span>
+          </div>
+          <div class="plat-row">
+            <span class="plat-lbl">${icon('facebook')} Facebook Reels</span>
+            <div class="pbar-track"><div class="pbar-fill fb" id="plat-bar-fb" style="width:0%;"></div></div>
+            <span class="plat-count num" id="plat-val-fb">0</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Detailed Task Status Table -->
+    <div class="card" style="margin-top:1.5rem;">
+      <div class="section-head" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1rem;">
+        <div>
+          <h2>Detailed Task Status Table</h2>
+          <p class="muted">Complete audit trail of discovered videos, AI moment cutting, and multi-platform publishing.</p>
+        </div>
+        <div class="filter-bar">
+          <select id="filter-topic" class="select select-sm">
+            <option value="">All Topics</option>
+          </select>
+          <select id="filter-platform" class="select select-sm">
+            <option value="">All Platforms</option>
+            <option value="youtube">YouTube</option>
+            <option value="instagram">Instagram</option>
+            <option value="facebook">Facebook</option>
+          </select>
+          <select id="filter-status" class="select select-sm">
+            <option value="">All Statuses</option>
+            <option value="scheduled">Scheduled</option>
+            <option value="live">Posted Live</option>
+            <option value="processing">Processing</option>
+            <option value="failed">Failed</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="task-table-wrap">
+        <table class="task-table" id="dashboard-table">
+          <thead>
+            <tr>
+              <th>Video Title</th>
+              <th>Topic</th>
+              <th>Clip #</th>
+              <th>Processing Status</th>
+              <th>Upload Status</th>
+              <th>Scheduled Date</th>
+              <th>Scheduled Time</th>
+              <th>Platform</th>
+              <th>Posted Time</th>
+            </tr>
+          </thead>
+          <tbody id="dashboard-tbody">
+            <tr><td colspan="9" class="muted" style="text-align:center; padding:2rem;">Loading task table...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+
+  // Attach filter events
+  $('#filter-topic').onchange = () => refreshDashboardTasks();
+  $('#filter-platform').onchange = () => refreshDashboardTasks();
+  $('#filter-status').onchange = () => refreshDashboardTasks();
+
+  // Load telemetry, stats, and tasks
+  await refreshDashboardTelemetry();
+  await refreshDashboardStats();
+  await refreshDashboardTasks();
+
+  // Fast interval polling for telemetry & active task
+  timer = setInterval(() => {
+    refreshDashboardTelemetry().catch(() => {});
+  }, 3000);
+}
+
+async function refreshDashboardTelemetry() {
+  try {
+    const d = await api('/dashboard/live');
+    const hw = d.hardware || d;
+
+    // CPU
+    const cpu = hw.cpu || {};
+    const cpuPct = cpu.percent ?? hw.cpu_percent ?? 0;
+    $('#tele-cpu-val').textContent = `${cpuPct}%`;
+    $('#tele-cpu-bar').style.width = `${cpuPct}%`;
+    $('#tele-cpu-sub').textContent = `${cpu.cores || 12} cores active`;
+
+    // GPU
+    const gpu = hw.gpu || {};
+    const gpuPct = gpu.vram_percent || 0;
+    $('#tele-gpu-val').textContent = `${gpuPct}%`;
+    $('#tele-gpu-bar').style.width = `${gpuPct}%`;
+    $('#tele-gpu-sub').textContent = `${gpu.name || 'NVIDIA RTX 3050'} (${gpu.vram_used_mb || 0}/${gpu.vram_total_mb || 4096} MB)`;
+
+    // RAM
+    const ram = hw.ram || {};
+    $('#tele-ram-val').textContent = `${ram.percent || 0}%`;
+    $('#tele-ram-bar').style.width = `${ram.percent || 0}%`;
+    $('#tele-ram-sub').textContent = `${ram.used_gb || 0} / ${ram.total_gb || 16} GB`;
+
+    // Disk / Storage
+    const disk = hw.storage || hw.disk || {};
+    $('#tele-disk-val').textContent = `${disk.free_gb || 0} GB free`;
+    $('#tele-disk-bar').style.width = `${disk.percent || 0}%`;
+    $('#tele-disk-sub').textContent = `${disk.path || 'D:'} (${disk.total_gb || 0} GB total)`;
+
+    // Agent status badge
+    const st = (d.agent_status || hw.agent_status || 'idle').toLowerCase();
+    const statusMap = {
+      processing: {label: 'Local Agent Processing', dot: 'blue'},
+      idle: {label: 'Local Agent Idle', dot: 'green'},
+      online: {label: 'Local Agent Online', dot: 'green'},
+      offline: {label: 'Local Agent Offline', dot: 'red'}
+    };
+    const sinfo = statusMap[st] || statusMap.online;
+    $('#agent-status-label').textContent = sinfo.label;
+    $('#agent-status-pill .status-dot').className = `status-dot ${sinfo.dot}`;
+
+    // Active task banner
+    const banner = $('#live-processing-banner');
+    const at = d.active_task || d.active_task_info;
+    if (at) {
+      $('#active-task-title').textContent = at.title || at.video_id;
+      $('#active-task-stage').textContent = at.stage || 'running';
+      $('#active-task-clips').textContent = at.clips_count || at.clips_created || at.clips_completed || 0;
+      $('#active-task-device').textContent = at.device || 'NVIDIA RTX 3050 (NVENC)';
+      const pVal = at.progress ?? (at.progress_percent ? at.progress_percent / 100 : 0);
+      $('#active-task-bar').style.width = `${Math.round(pVal * 100)}%`;
+      banner.style.display = 'flex';
+    } else {
+      banner.style.display = 'none';
+    }
+  } catch (err) {}
+}
+
+async function refreshDashboardStats() {
+  try {
+    const s = await api('/dashboard/stats');
+    $('#kpi-videos').textContent = s.total_videos_selected ?? s.videos_selected ?? 0;
+    $('#kpi-clips').textContent = s.total_clips_generated ?? s.clips_generated ?? 0;
+    $('#kpi-posted').textContent = s.total_posted ?? s.clips_posted ?? 0;
+    $('#kpi-scheduled').textContent = s.total_pending ?? s.clips_pending ?? 0;
+    $('#kpi-processing').textContent = s.total_processing ?? s.clips_processing ?? 0;
+    $('#kpi-failed').textContent = s.total_failed ?? s.failed_uploads ?? 0;
+
+    // Daily SVG chart
+    renderDailyChart(s.daily_uploads || []);
+
+    // Platforms
+    const p = s.platforms || {};
+    const yt = p.youtube || 0, ig = p.instagram || 0, fb = p.facebook || 0;
+    const maxP = Math.max(yt, ig, fb, 1);
+    $('#plat-val-yt').textContent = yt;
+    $('#plat-val-ig').textContent = ig;
+    $('#plat-val-fb').textContent = fb;
+    $('#plat-bar-yt').style.width = `${(yt / maxP) * 100}%`;
+    $('#plat-bar-ig').style.width = `${(ig / maxP) * 100}%`;
+    $('#plat-bar-fb').style.width = `${(fb / maxP) * 100}%`;
+  } catch (err) {}
+}
+
+function renderDailyChart(days) {
+  const svg = $('#svg-daily');
+  if (!svg || !days.length) return;
+  const maxVal = Math.max(...days.map(d => d.count), 5);
+  const width = 500, height = 150, padB = 25, padT = 15;
+  const colW = width / days.length;
+
+  let html = '';
+  days.forEach((d, i) => {
+    const barH = (d.count / maxVal) * (height - padB - padT);
+    const x = i * colW + 12;
+    const y = height - padB - barH;
+    const barW = Math.max(colW - 24, 16);
+    html += `
+      <g class="chart-bar-group">
+        <rect x="${x}" y="${y}" width="${barW}" height="${barH}" rx="4" fill="var(--color-primary, #6366f1)"></rect>
+        <text x="${x + barW / 2}" y="${y - 4}" text-anchor="middle" font-size="10" fill="var(--color-text, #333)">${d.count}</text>
+        <text x="${x + barW / 2}" y="${height - 6}" text-anchor="middle" font-size="10" fill="var(--color-muted, #888)">${esc(d.label || d.date.slice(5))}</text>
+      </g>
+    `;
+  });
+  svg.innerHTML = html;
+}
+
+async function refreshDashboardTasks() {
+  const topic = $('#filter-topic').value;
+  const plat = $('#filter-platform').value;
+  const stat = $('#filter-status').value;
+  const tbody = $('#dashboard-tbody');
+  if (!tbody) return;
+
+  try {
+    const q = new URLSearchParams({topic, platform: plat, status: stat}).toString();
+    const res = await api(`/dashboard/tasks?${q}`);
+    const rows = res.tasks || [];
+
+    // Populate topics dropdown if empty
+    const sel = $('#filter-topic');
+    if (sel.options.length <= 1 && res.topics) {
+      res.topics.forEach(t => {
+        const opt = document.createElement('option');
+        opt.value = t; opt.textContent = t;
+        sel.appendChild(opt);
+      });
+    }
+
+    if (!rows.length) {
+      tbody.innerHTML = `<tr><td colspan="9" class="muted" style="text-align:center; padding:2rem;">No matching tasks found.</td></tr>`;
+      return;
+    }
+
+    tbody.innerHTML = rows.map(r => {
+      const procBadges = {
+        completed: '<span class="badge ok">' + icon('circle-check', 13) + 'Completed</span>',
+        processing: '<span class="badge info">' + icon('loader-circle', 13, 'spin') + 'Processing</span>',
+        pending: '<span class="badge">Pending</span>',
+        failed: '<span class="badge bad">' + icon('circle-x', 13) + 'Failed</span>'
+      };
+      const upBadges = {
+        live: '<span class="badge ok">' + icon('check', 13) + 'Posted</span>',
+        scheduled: '<span class="badge info">' + icon('clock', 13) + 'Scheduled</span>',
+        failed: '<span class="badge bad">' + icon('circle-x', 13) + 'Failed</span>',
+        pending: '<span class="badge">Pending</span>'
+      };
+      return `
+        <tr>
+          <td class="task-cell-video">
+            <div style="font-weight:500;">${esc(r.video_title)}</div>
+            ${r.post_id ? `<a class="link" href="#/post/${r.batch_id || ''}"><small>View in PostKaro</small></a>` : ''}
+          </td>
+          <td><span class="chip">${esc(r.topic || 'General')}</span></td>
+          <td><b class="num">${r.clip_number || 1}</b></td>
+          <td>${procBadges[r.processing_status] || esc(r.processing_status)}</td>
+          <td>${upBadges[r.upload_status] || esc(r.upload_status)}</td>
+          <td>${esc(r.scheduled_date || '--')}</td>
+          <td>${esc(r.scheduled_time || '--')}</td>
+          <td>${r.platform ? pf(r.platform, 14) : '<span class="muted">All</span>'}</td>
+          <td><small>${esc(r.posted_time || '--')}</small></td>
+        </tr>
+      `;
+    }).join('');
+  } catch (err) {}
 }
 
 // ---------------------------------------------------------------- start

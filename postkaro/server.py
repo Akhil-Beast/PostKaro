@@ -634,6 +634,102 @@ def gdrive_clips(request, body):
     return {'clips': gdrive.list_clips(), 'folder_id': gdrive.folder_id()}
 
 
+
+
+# ---------- Discovery, Dashboard & Hardware Endpoints ----------
+
+def discovery_search(request, body):
+    from . import discovery
+    query = body.get('query') or ''
+    res = discovery.search_or_extract(query, max_results=10)
+    res['results'] = res.get('videos', [])
+    return res
+
+
+def discovery_queue(request, body):
+    from . import db, pipeline
+    videos = body.get('videos') or ([body['video']] if 'video' in body else [])
+    topic = body.get('topic') or ''
+    queued = []
+    for v in videos:
+        res = db.add_video_task({
+            'source_type': 'url' if v.get('url') else 'topic',
+            'topic': topic or v.get('topic', ''),
+            'url': v.get('url', ''),
+            'video_id': v.get('video_id', ''),
+            'title': v.get('title', ''),
+            'thumbnail': v.get('thumbnail', ''),
+            'channel': v.get('channel', ''),
+            'views': v.get('views', 0),
+            'duration': v.get('duration', 0),
+            'reason': v.get('reason', ''),
+            'score': v.get('score', 0),
+            'stage': 'queued'
+        })
+        queued.append(res)
+    pipeline.start_background_pipeline()
+    return {'queued': len(queued), 'tasks': queued}
+
+
+def discovery_tasks(request, body):
+    from . import db
+    stage = request.query_params.get('stage')
+    topic = request.query_params.get('topic')
+    tasks = db.list_video_tasks(stage=stage, topic=topic, limit=100)
+    return {'tasks': tasks}
+
+
+def dashboard_stats(request, body):
+    from . import dashboard
+    return dashboard.get_stats()
+
+
+def dashboard_charts(request, body):
+    from . import dashboard
+    return dashboard.get_charts()
+
+
+def dashboard_tasks(request, body):
+    from . import dashboard, db
+    params = request.query_params
+    tasks = dashboard.get_tasks_table(
+        topic=params.get('topic'),
+        platform=params.get('platform'),
+        status=params.get('status'),
+        search=params.get('search')
+    )
+    topics_rows = db.rows("SELECT DISTINCT topic FROM video_tasks WHERE topic != '' AND topic IS NOT NULL")
+    topics = [r['topic'] for r in topics_rows]
+    return {'tasks': tasks, 'topics': topics}
+
+
+def dashboard_live(request, body):
+    from . import dashboard
+    return dashboard.get_live_monitor()
+
+
+def pipeline_action(request, body):
+    from . import pipeline
+    action = request.path_params.get('action')
+    if action == 'start':
+        pipeline.set_paused(False)
+        pipeline.start_background_pipeline()
+        return {'status': 'started'}
+    elif action == 'pause':
+        pipeline.set_paused(True)
+        return {'status': 'paused'}
+    elif action == 'resume':
+        pipeline.set_paused(False)
+        pipeline.start_background_pipeline()
+        return {'status': 'resumed'}
+    return {'status': 'unknown'}
+
+
+def hardware_status(request, body):
+    from . import hardware, db
+    active = db.get_active_video_task()
+    return hardware.get_telemetry(active_task=active)
+
 def gdrive_sync(request, body):
     from . import gdrive
     return gdrive.sync_drive_to_batch()
@@ -689,6 +785,15 @@ def routes():
         R('/api/apps/{name}', api(delete_app), methods=['DELETE']),
         R('/api/connect/{name}', api(connect), methods=['POST']),
         R('/api/account/{platform}/{aid}/{action}', api(account_action), methods=['POST']),
+        R('/api/discovery/search', api(discovery_search), methods=['POST']),
+        R('/api/discovery/queue', api(discovery_queue), methods=['POST']),
+        R('/api/discovery/tasks', api(discovery_tasks)),
+        R('/api/dashboard/stats', api(dashboard_stats)),
+        R('/api/dashboard/charts', api(dashboard_charts)),
+        R('/api/dashboard/tasks', api(dashboard_tasks)),
+        R('/api/dashboard/live', api(dashboard_live)),
+        R('/api/pipeline/{action}', api(pipeline_action), methods=['POST']),
+        R('/api/hardware', api(hardware_status)),
         R('/api/gdrive/clips', api(gdrive_clips)),
         R('/api/gdrive/sync', api(gdrive_sync), methods=['POST']),
         Mount('/static', StaticFiles(directory=paths.WEB), name='static'),

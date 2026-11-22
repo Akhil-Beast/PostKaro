@@ -12,3 +12,5 @@ cloudflared.exe
 *.log
 # a design tool's working files (screenshots, before/after pages)
 .hallmark/
+
+graphify-out/
