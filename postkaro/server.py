@@ -669,7 +669,7 @@ async def lifespan(app):
 def routes():
     R = Route
     return [
-        R('/', index), R('/health', health), R('/media/clip/{id:int}', media), R('/media/thumb/{id:int}', thumb),
+        R('/', index), R('/health', health), R('/ping', health), R('/media/clip/{id:int}', media), R('/media/thumb/{id:int}', thumb),
         R('/media/cover/{id:int}', cover_file),
         R('/api/clip/{id:int}/cover-frame', api(cover_frame), methods=['POST']),
         R('/api/clip/{id:int}/cover', cover_upload, methods=['PUT']),
