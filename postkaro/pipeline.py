@@ -100,7 +100,12 @@ def notify_cloud_task(task_id, **kwargs):
         req = urllib.request.Request(
             url,
             data=payload,
-            headers={'Content-Type': 'application/json', 'User-Agent': 'PostKaro-LocalAgent/1.0'},
+            headers={
+                'Content-Type': 'application/json',
+                'User-Agent': 'PostKaro-LocalAgent/1.0',
+                'x-postkaro': CLOUD_API_KEY,
+                'Origin': CLOUD_BASE_URL
+            },
             method='POST'
         )
         with urllib.request.urlopen(req, timeout=8) as resp:
