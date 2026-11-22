@@ -124,7 +124,7 @@ def get_tasks_table(topic=None, platform=None, status=None, search=None, limit=2
             p.error AS post_error,
             p.url AS live_url
         FROM video_tasks vt
-        LEFT JOIN batches b ON (b.project = json_extract(vt.checkpoint, '$.proj_name') OR b.id = vt.batch_id)
+        LEFT JOIN batches b ON (b.id = vt.batch_id OR (CASE WHEN json_valid(vt.checkpoint) THEN b.project = json_extract(vt.checkpoint, '$.proj_name') ELSE 0 END))
         LEFT JOIN clips c ON c.batch_id = b.id
         LEFT JOIN posts p ON p.clip_id = c.id
         ORDER BY vt.id DESC, c.no ASC

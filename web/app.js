@@ -228,25 +228,46 @@ async function loadState() {
 }
 
 const ROUTES = [
-  [/^#?\/?$/, 'post', home], [/^#\/post\/(\d+)$/, 'post', batchPage], [/^#\/queue$/, 'queue', queuePage],
-  [/^#\/posted$/, 'posted', postedPage], [/^#\/accounts$/, 'accounts', accountsPage],
-  [/^#\/discover$/, 'discover', discoverPage], [/^#\/dashboard$/, 'dashboard', dashboardPage],
+  [/^#\/dashboard$/, 'dashboard', dashboardPage],
+  [/^#\/analytics$/, 'analytics', dashboardPage],
+  [/^#\/monitor$/, 'monitor', dashboardPage],
+  [/^#?\/?$/, 'post', home],
+  [/^#\/post\/(\d+)$/, 'post', batchPage],
+  [/^#\/queue$/, 'queue', queuePage],
+  [/^#\/scheduled$/, 'scheduled', queuePage],
+  [/^#\/posted$/, 'posted', postedPage],
+  [/^#\/accounts$/, 'accounts', accountsPage],
+  [/^#\/settings$/, 'accounts', accountsPage],
+  [/^#\/discover$/, 'discover', discoverPage],
 ];
 async function route() {
   clearInterval(timer);
-  const h = location.hash || '#/';
+  const h = location.hash || '#/dashboard';
   for (const [re, nav, fn] of ROUTES) {
     const m = h.match(re);
     if (!m) continue;
     $$('[data-nav]').forEach(a => {
       if (a.dataset.nav === nav) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
     });
+    const pageTitles = {
+      dashboard: 'Dashboard / Overview',
+      analytics: 'Analytics & Reports',
+      monitor: 'System & Hardware Monitor',
+      post: 'Post Karo / Library',
+      discover: 'Video Discovery / AI Trends',
+      queue: 'Processing Queue / Active Tasks',
+      scheduled: 'Scheduled Posts / Calendar',
+      posted: 'Published Posts / Audit History',
+      accounts: 'Settings / Connected Platforms'
+    };
+    const bc = $('#bc-current-page');
+    if (bc) bc.textContent = pageTitles[nav] || 'Dashboard';
     try { await fn(...m.slice(1)); } catch (e) {
       $('#main').innerHTML = `<div class="notice warn">${icon('circle-alert')}<span>${esc(e.message)}</span></div>`;
     }
     return;
   }
-  location.hash = '#/';
+  location.hash = '#/dashboard';
 }
 addEventListener('hashchange', () => { if ($('#preview').open) $('#preview').close(); route(); window.scrollTo(0, 0); });
 addEventListener('scroll', () => { const s = $('.sticky-head'); if (s) s.classList.toggle('stuck', scrollY > 24); }, {passive: true});
@@ -1244,208 +1265,368 @@ async function loadDiscoveryTasks() {
   }
 }
 
-// ---------------------------------------------------------------- Status Dashboard
+// ---------------------------------------------------------------- Dashboard: Modern SaaS Redesign
 
 async function dashboardPage() {
   $('#main').innerHTML = `
-    <div class="page-head">
+    <!-- Page Header & Action Bar -->
+    <div class="saas-page-header">
       <div>
-        <h1>Status Dashboard</h1>
-        <p class="lead">Live hardware telemetry, video processing pipeline monitor, and multi-platform publishing analytics.</p>
+        <h1 class="saas-page-title">Dashboard Overview</h1>
+        <div class="saas-page-lead">Real-time AI video discovery, hardware clipping telemetry & multi-platform publishing pipeline.</div>
       </div>
-      <div class="page-actions">
-        <span class="telemetry-pill" id="agent-status-pill">
-          <span class="status-dot green"></span>
-          <span id="agent-status-label">Local Agent Online</span>
-        </span>
-      </div>
-    </div>
-
-    <!-- Live Telemetry & Hardware Cards -->
-    <div class="telemetry-grid">
-      <div class="card tele-card">
-        <div class="tele-head">
-          <span class="tele-title">${icon('cpu')} CPU Utilization</span>
-          <span class="tele-val" id="tele-cpu-val">--%</span>
-        </div>
-        <div class="pbar-track"><div class="pbar-fill" id="tele-cpu-bar" style="width:0%;"></div></div>
-        <div class="tele-sub" id="tele-cpu-sub">Detecting cores...</div>
-      </div>
-
-      <div class="card tele-card">
-        <div class="tele-head">
-          <span class="tele-title">${icon('zap')} NVIDIA RTX GPU</span>
-          <span class="tele-val" id="tele-gpu-val">--%</span>
-        </div>
-        <div class="pbar-track"><div class="pbar-fill gpu-bar" id="tele-gpu-bar" style="width:0%;"></div></div>
-        <div class="tele-sub" id="tele-gpu-sub">NVENC & CUDA Hardware Encoding</div>
-      </div>
-
-      <div class="card tele-card">
-        <div class="tele-head">
-          <span class="tele-title">${icon('activity')} RAM Memory</span>
-          <span class="tele-val" id="tele-ram-val">--%</span>
-        </div>
-        <div class="pbar-track"><div class="pbar-fill" id="tele-ram-bar" style="width:0%;"></div></div>
-        <div class="tele-sub" id="tele-ram-sub">-- / -- GB</div>
-      </div>
-
-      <div class="card tele-card">
-        <div class="tele-head">
-          <span class="tele-title">${icon('folder-open')} D: Drive Storage</span>
-          <span class="tele-val" id="tele-disk-val">-- GB free</span>
-        </div>
-        <div class="pbar-track"><div class="pbar-fill" id="tele-disk-bar" style="width:0%;"></div></div>
-        <div class="tele-sub" id="tele-disk-sub">Clips & Cache Storage</div>
+      <div class="saas-header-actions">
+        <button class="btn btn-sm btn-ghost" id="dash-refresh-btn" title="Refresh Telemetry & Stats">
+          ${icon('refresh-cw', 13)}
+          <span>Refresh</span>
+        </button>
+        <button class="btn btn-sm btn-ghost" id="dash-cloud-sync-btn" title="Sync Cloud Queue">
+          ${icon('rotate-ccw', 13)}
+          <span>Sync Cloud</span>
+        </button>
+        <a href="#/discover" class="btn btn-sm btn-primary">
+          ${icon('sparkles', 13)}
+          <span>Discover Videos</span>
+        </a>
       </div>
     </div>
 
-    <!-- Live Active Processing Banner -->
-    <div id="live-processing-banner" class="active-proc-banner" style="display:none;">
-      <div class="active-proc-icon">${icon('loader-circle', 28, 'spin')}</div>
-      <div class="active-proc-body">
-        <div class="active-proc-head">
-          <span class="badge info">Live Processing</span>
-          <h3 id="active-task-title">Processing video...</h3>
+    <!-- Professional KPI Cards Grid -->
+    <div class="saas-kpi-grid">
+      <div class="saas-kpi-card">
+        <div class="saas-kpi-top">
+          <span class="saas-kpi-label">Videos Discovered</span>
+          <span class="saas-kpi-icon-wrap indigo">${icon('sparkles', 17)}</span>
         </div>
-        <div class="active-proc-meta">
-          <span>Stage: <b id="active-task-stage">downloading</b></span> ·
-          <span>Clips: <b id="active-task-clips">0</b></span> ·
-          <span>Device: <b id="active-task-device">NVIDIA NVENC</b></span>
+        <div class="saas-kpi-val" id="kpi-videos">0</div>
+        <div class="saas-kpi-footer">
+          <span class="saas-trend-badge up">AI Scored</span>
+          <span class="saas-kpi-sub">Trending YouTube</span>
         </div>
-        <div class="pbar-track" style="margin-top:0.5rem;"><div class="pbar-fill" id="active-task-bar" style="width:0%;"></div></div>
+      </div>
+
+      <div class="saas-kpi-card">
+        <div class="saas-kpi-top">
+          <span class="saas-kpi-label">Clips Generated</span>
+          <span class="saas-kpi-icon-wrap emerald">${icon('film', 17)}</span>
+        </div>
+        <div class="saas-kpi-val" id="kpi-clips">0</div>
+        <div class="saas-kpi-footer">
+          <span class="saas-trend-badge up">9:16 Shorts</span>
+          <span class="saas-kpi-sub">RTX NVENC Cut</span>
+        </div>
+      </div>
+
+      <div class="saas-kpi-card">
+        <div class="saas-kpi-top">
+          <span class="saas-kpi-label">Published Live</span>
+          <span class="saas-kpi-icon-wrap blue">${icon('check', 17)}</span>
+        </div>
+        <div class="saas-kpi-val" id="kpi-posted">0</div>
+        <div class="saas-kpi-footer">
+          <span class="saas-trend-badge up">Live Audit</span>
+          <span class="saas-kpi-sub">Multi-platform</span>
+        </div>
+      </div>
+
+      <div class="saas-kpi-card">
+        <div class="saas-kpi-top">
+          <span class="saas-kpi-label">Scheduled Posts</span>
+          <span class="saas-kpi-icon-wrap purple">${icon('clock', 17)}</span>
+        </div>
+        <div class="saas-kpi-val" id="kpi-scheduled">0</div>
+        <div class="saas-kpi-footer">
+          <span class="saas-trend-badge neutral">Auto 3:00 AM</span>
+          <span class="saas-kpi-sub">Calendar ready</span>
+        </div>
+      </div>
+
+      <div class="saas-kpi-card">
+        <div class="saas-kpi-top">
+          <span class="saas-kpi-label">In Processing</span>
+          <span class="saas-kpi-icon-wrap amber">${icon('loader-circle', 17, 'spin')}</span>
+        </div>
+        <div class="saas-kpi-val" id="kpi-processing">0</div>
+        <div class="saas-kpi-footer">
+          <span class="saas-trend-badge neutral">Local Worker</span>
+          <span class="saas-kpi-sub">Active tasks</span>
+        </div>
+      </div>
+
+      <div class="saas-kpi-card">
+        <div class="saas-kpi-top">
+          <span class="saas-kpi-label">Failed Tasks</span>
+          <span class="saas-kpi-icon-wrap rose">${icon('circle-x', 17)}</span>
+        </div>
+        <div class="saas-kpi-val" id="kpi-failed">0</div>
+        <div class="saas-kpi-footer">
+          <span class="saas-trend-badge neutral">Resumable</span>
+          <span class="saas-kpi-sub">Auto-checkpointed</span>
+        </div>
       </div>
     </div>
 
-    <!-- KPI Statistics 6-pack -->
-    <div class="kpi-grid">
-      <div class="kpi-card">
-        <div class="kpi-num" id="kpi-videos">0</div>
-        <div class="kpi-label">Videos Selected</div>
-      </div>
-      <div class="kpi-card">
-        <div class="kpi-num ok" id="kpi-clips">0</div>
-        <div class="kpi-label">Clips Generated</div>
-      </div>
-      <div class="kpi-card">
-        <div class="kpi-num ok" id="kpi-posted">0</div>
-        <div class="kpi-label">Posted Live</div>
-      </div>
-      <div class="kpi-card">
-        <div class="kpi-num info" id="kpi-scheduled">0</div>
-        <div class="kpi-label">Scheduled / Pending</div>
-      </div>
-      <div class="kpi-card">
-        <div class="kpi-num" id="kpi-processing">0</div>
-        <div class="kpi-label">Processing Now</div>
-      </div>
-      <div class="kpi-card">
-        <div class="kpi-num bad" id="kpi-failed">0</div>
-        <div class="kpi-label">Failed Uploads</div>
-      </div>
-    </div>
-
-    <!-- Charts Section -->
-    <div class="charts-grid">
-      <div class="card chart-card">
-        <div class="card-head">
-          <h3>Daily Uploads Activity</h3>
-          <span class="muted">Past 7 days</span>
-        </div>
-        <div id="chart-daily-uploads" class="chart-box">
-          <svg class="chart-svg" viewBox="0 0 500 160" id="svg-daily"></svg>
-        </div>
-      </div>
-
-      <div class="card chart-card">
-        <div class="card-head">
-          <h3>Platform Distribution</h3>
-          <span class="muted">Live & Scheduled</span>
-        </div>
-        <div id="chart-platforms" class="chart-box-plat">
-          <div class="plat-row">
-            <span class="plat-lbl">${icon('youtube')} YouTube Shorts</span>
-            <div class="pbar-track"><div class="pbar-fill yt" id="plat-bar-yt" style="width:0%;"></div></div>
-            <span class="plat-count num" id="plat-val-yt">0</span>
-          </div>
-          <div class="plat-row">
-            <span class="plat-lbl">${icon('instagram')} Instagram Reels</span>
-            <div class="pbar-track"><div class="pbar-fill ig" id="plat-bar-ig" style="width:0%;"></div></div>
-            <span class="plat-count num" id="plat-val-ig">0</span>
-          </div>
-          <div class="plat-row">
-            <span class="plat-lbl">${icon('facebook')} Facebook Reels</span>
-            <div class="pbar-track"><div class="pbar-fill fb" id="plat-bar-fb" style="width:0%;"></div></div>
-            <span class="plat-count num" id="plat-val-fb">0</span>
+    <!-- Dedicated Hardware Telemetry Monitor (PC Agent) -->
+    <div class="saas-hardware-card">
+      <div class="saas-hw-head">
+        <div class="saas-hw-title-row">
+          <span class="saas-kpi-icon-wrap emerald" style="width:28px; height:28px;">${icon('cpu', 15)}</span>
+          <div>
+            <h3 class="saas-hw-title">Local Hardware & Agent Telemetry</h3>
+            <div class="saas-card-meta">NVIDIA RTX 3050 NVENC + CUDA Whisper Hardware Acceleration</div>
           </div>
         </div>
-      </div>
-    </div>
-
-    <!-- Detailed Task Status Table -->
-    <div class="card" style="margin-top:1.5rem;">
-      <div class="section-head" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1rem;">
         <div>
-          <h2>Detailed Task Status Table</h2>
-          <p class="muted">Complete audit trail of discovered videos, AI moment cutting, and multi-platform publishing.</p>
+          <span class="telemetry-pill" id="agent-status-pill">
+            <span class="status-dot green"></span>
+            <span id="agent-status-label">Local Agent Online</span>
+          </span>
         </div>
-        <div class="filter-bar">
-          <select id="filter-topic" class="select select-sm">
+      </div>
+
+      <div class="saas-hw-grid">
+        <div class="saas-hw-item">
+          <div class="saas-hw-item-top">
+            <span class="saas-hw-label">${icon('cpu', 14)} CPU Utilization</span>
+            <span class="saas-hw-val" id="tele-cpu-val">--%</span>
+          </div>
+          <div class="saas-plat-bar-track">
+            <div class="saas-plat-bar-fill" id="tele-cpu-bar" style="width:0%; background:#4f46e5;"></div>
+          </div>
+          <div class="saas-hw-sub" id="tele-cpu-sub">Detecting CPU cores...</div>
+        </div>
+
+        <div class="saas-hw-item">
+          <div class="saas-hw-item-top">
+            <span class="saas-hw-label">${icon('zap', 14)} NVIDIA RTX GPU</span>
+            <span class="saas-hw-val" id="tele-gpu-val">--%</span>
+          </div>
+          <div class="saas-plat-bar-track">
+            <div class="saas-plat-bar-fill" id="tele-gpu-bar" style="width:0%; background:#10b981;"></div>
+          </div>
+          <div class="saas-hw-sub" id="tele-gpu-sub">RTX 3050 (NVENC / CUDA)</div>
+        </div>
+
+        <div class="saas-hw-item">
+          <div class="saas-hw-item-top">
+            <span class="saas-hw-label">${icon('activity', 14)} RAM Memory</span>
+            <span class="saas-hw-val" id="tele-ram-val">--%</span>
+          </div>
+          <div class="saas-plat-bar-track">
+            <div class="saas-plat-bar-fill" id="tele-ram-bar" style="width:0%; background:#0284c7;"></div>
+          </div>
+          <div class="saas-hw-sub" id="tele-ram-sub">-- / -- GB Active</div>
+        </div>
+
+        <div class="saas-hw-item">
+          <div class="saas-hw-item-top">
+            <span class="saas-hw-label">${icon('folder-open', 14)} Storage (D: Drive)</span>
+            <span class="saas-hw-val" id="tele-disk-val">-- GB free</span>
+          </div>
+          <div class="saas-plat-bar-track">
+            <div class="saas-plat-bar-fill" id="tele-disk-bar" style="width:0%; background:#f59e0b;"></div>
+          </div>
+          <div class="saas-hw-sub" id="tele-disk-sub">Clips & Cache Storage</div>
+        </div>
+      </div>
+
+      <!-- Live Active Processing Task Banner -->
+      <div id="live-processing-banner" class="saas-active-task-banner" style="display:none;">
+        <div class="saas-active-task-icon">
+          ${icon('loader-circle', 22, 'spin')}
+        </div>
+        <div class="saas-active-task-body">
+          <div class="saas-active-task-head">
+            <span class="badge info" style="background:rgba(255,255,255,0.15); color:#ffffff; border:none;">ACTIVE RENDER</span>
+            <h4 id="active-task-title">Processing video clips on RTX 3050...</h4>
+          </div>
+          <div class="saas-active-task-meta">
+            <span>Stage: <b id="active-task-stage" style="color:#ffffff;">queued</b></span> &middot;
+            <span>Clips Created: <b id="active-task-clips" style="color:#ffffff;">0</b></span> &middot;
+            <span>Engine: <b id="active-task-device" style="color:#ffffff;">NVIDIA GPU</b></span>
+          </div>
+        </div>
+        <div class="saas-active-task-pbar">
+          <div class="saas-active-task-pbar-fill" id="active-task-bar" style="width:0%;"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Analytics & Visualization Section -->
+    <div class="saas-analytics-grid">
+      <!-- Daily Publishing Activity Chart -->
+      <div class="saas-card">
+        <div class="saas-card-head">
+          <div>
+            <h3 class="saas-card-title">Daily Publishing Activity</h3>
+            <div class="saas-card-meta">Scheduled & live short-form video uploads across 14 days</div>
+          </div>
+          <span class="saas-trend-badge neutral">14-Day Velocity</span>
+        </div>
+        <div style="overflow-x:auto;">
+          <svg id="svg-daily" viewBox="0 0 500 150" style="width:100%; height:160px; display:block;"></svg>
+        </div>
+      </div>
+
+      <!-- Platform Distribution -->
+      <div class="saas-card">
+        <div class="saas-card-head">
+          <div>
+            <h3 class="saas-card-title">Platform Distribution</h3>
+            <div class="saas-card-meta">Live & scheduled breakdown</div>
+          </div>
+          <a href="#/accounts" class="saas-card-meta link">Manage</a>
+        </div>
+        <div style="margin-top:12px;">
+          <div class="saas-plat-row">
+            <div class="saas-plat-info">
+              <span style="color:#ef4444;">${icon('youtube', 16)}</span>
+              <span>YouTube Shorts</span>
+            </div>
+            <div class="saas-plat-bar-wrap">
+              <div class="saas-plat-bar-track">
+                <div class="saas-plat-bar-fill yt" id="plat-bar-yt" style="width:0%;"></div>
+              </div>
+            </div>
+            <div class="saas-plat-count" id="plat-val-yt">0</div>
+          </div>
+
+          <div class="saas-plat-row">
+            <div class="saas-plat-info">
+              <span style="color:#ec4899;">${icon('instagram', 16)}</span>
+              <span>Instagram Reels</span>
+            </div>
+            <div class="saas-plat-bar-wrap">
+              <div class="saas-plat-bar-track">
+                <div class="saas-plat-bar-fill ig" id="plat-bar-ig" style="width:0%;"></div>
+              </div>
+            </div>
+            <div class="saas-plat-count" id="plat-val-ig">0</div>
+          </div>
+
+          <div class="saas-plat-row">
+            <div class="saas-plat-info">
+              <span style="color:#3b82f6;">${icon('facebook', 16)}</span>
+              <span>Facebook Reels</span>
+            </div>
+            <div class="saas-plat-bar-wrap">
+              <div class="saas-plat-bar-track">
+                <div class="saas-plat-bar-fill fb" id="plat-bar-fb" style="width:0%;"></div>
+              </div>
+            </div>
+            <div class="saas-plat-count" id="plat-val-fb">0</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Recent Activity & Detailed Task Status Audit Table -->
+    <div class="saas-table-card">
+      <div class="saas-table-toolbar">
+        <div>
+          <h3 class="saas-card-title">Recent Activity & Video Processing Queue</h3>
+          <div class="saas-card-meta">Audit trail of discovered videos, AI moment cutting, and multi-platform publishing</div>
+        </div>
+        <div class="saas-table-filters">
+          <input type="search" id="filter-search" placeholder="Search tasks..." style="width:160px;">
+          <select id="filter-topic">
             <option value="">All Topics</option>
           </select>
-          <select id="filter-platform" class="select select-sm">
+          <select id="filter-platform">
             <option value="">All Platforms</option>
             <option value="youtube">YouTube</option>
             <option value="instagram">Instagram</option>
             <option value="facebook">Facebook</option>
           </select>
-          <select id="filter-status" class="select select-sm">
+          <select id="filter-status">
             <option value="">All Statuses</option>
             <option value="scheduled">Scheduled</option>
-            <option value="live">Posted Live</option>
+            <option value="live">Published Live</option>
+            <option value="completed">Completed</option>
             <option value="processing">Processing</option>
             <option value="failed">Failed</option>
           </select>
+          <button class="btn btn-sm btn-ghost" id="filter-refresh-btn" title="Refresh Table">
+            ${icon('refresh-cw', 12)}
+          </button>
         </div>
       </div>
 
-      <div class="task-table-wrap">
+      <div style="overflow-x:auto;">
         <table class="task-table" id="dashboard-table">
           <thead>
             <tr>
-              <th>Video Title</th>
+              <th style="min-width:280px;">Video / Content</th>
               <th>Topic</th>
               <th>Clip #</th>
-              <th>Processing Status</th>
+              <th>Processing Stage</th>
               <th>Upload Status</th>
-              <th>Scheduled Date</th>
-              <th>Scheduled Time</th>
+              <th>Scheduled</th>
               <th>Platform</th>
-              <th>Posted Time</th>
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody id="dashboard-tbody">
-            <tr><td colspan="9" class="muted" style="text-align:center; padding:2rem;">Loading task table...</td></tr>
+            <tr>
+              <td colspan="8">
+                <div class="saas-empty-state">
+                  <div class="saas-empty-icon">${icon('loader-circle', 24, 'spin')}</div>
+                  <div class="saas-empty-title">Loading Processing Tasks...</div>
+                  <div class="saas-empty-desc">Fetching pipeline history and active hardware checkpoints.</div>
+                </div>
+              </td>
+            </tr>
           </tbody>
         </table>
       </div>
     </div>
   `;
 
-  // Attach filter events
+  // Attach filter & search listeners
+  const searchInput = $('#filter-search');
+  if (searchInput) {
+    searchInput.oninput = debounce(() => refreshDashboardTasks(), 300);
+  }
   $('#filter-topic').onchange = () => refreshDashboardTasks();
   $('#filter-platform').onchange = () => refreshDashboardTasks();
   $('#filter-status').onchange = () => refreshDashboardTasks();
+  $('#filter-refresh-btn').onclick = () => refreshDashboardTasks();
+  $('#dash-refresh-btn').onclick = () => refreshDashboardAll();
+  
+  const syncBtn = $('#dash-cloud-sync-btn');
+  if (syncBtn) {
+    syncBtn.onclick = async () => {
+      syncBtn.disabled = true;
+      syncBtn.innerHTML = `${icon('loader-circle', 12, 'spin')} <span>Syncing...</span>`;
+      try {
+        await api('/pipeline/resume', 'POST', {});
+        toast('Cloud queue synchronization triggered', 'ok');
+      } catch (e) {
+        toast('Sync notice: ' + e.message, 'info');
+      }
+      setTimeout(() => {
+        syncBtn.disabled = false;
+        syncBtn.innerHTML = `${icon('rotate-ccw', 13)} <span>Sync Cloud</span>`;
+        refreshDashboardAll();
+      }, 1500);
+    };
+  }
 
   // Load telemetry, stats, and tasks
-  await refreshDashboardTelemetry();
-  await refreshDashboardStats();
-  await refreshDashboardTasks();
+  await refreshDashboardAll();
 
   // Fast interval polling for telemetry & active task
   timer = setInterval(() => {
     refreshDashboardTelemetry().catch(() => {});
   }, 3000);
+}
+
+async function refreshDashboardAll() {
+  await Promise.allSettled([
+    refreshDashboardTelemetry(),
+    refreshDashboardStats(),
+    refreshDashboardTasks()
+  ]);
 }
 
 async function refreshDashboardTelemetry() {
@@ -1456,30 +1637,42 @@ async function refreshDashboardTelemetry() {
     // CPU
     const cpu = hw.cpu || {};
     const cpuPct = cpu.percent ?? hw.cpu_percent ?? 0;
-    $('#tele-cpu-val').textContent = `${cpuPct}%`;
-    $('#tele-cpu-bar').style.width = `${cpuPct}%`;
-    $('#tele-cpu-sub').textContent = `${cpu.cores || 12} cores active`;
+    const cpuEl = $('#tele-cpu-val');
+    if (cpuEl) cpuEl.textContent = `${cpuPct}%`;
+    const cpuBar = $('#tele-cpu-bar');
+    if (cpuBar) cpuBar.style.width = `${cpuPct}%`;
+    const cpuSub = $('#tele-cpu-sub');
+    if (cpuSub) cpuSub.textContent = `${cpu.cores || 12} cores active`;
 
     // GPU
     const gpu = hw.gpu || {};
     const gpuPct = gpu.vram_percent || 0;
-    $('#tele-gpu-val').textContent = `${gpuPct}%`;
-    $('#tele-gpu-bar').style.width = `${gpuPct}%`;
-    $('#tele-gpu-sub').textContent = `${gpu.name || 'NVIDIA RTX 3050'} (${gpu.vram_used_mb || 0}/${gpu.vram_total_mb || 4096} MB)`;
+    const gpuEl = $('#tele-gpu-val');
+    if (gpuEl) gpuEl.textContent = `${gpuPct}%`;
+    const gpuBar = $('#tele-gpu-bar');
+    if (gpuBar) gpuBar.style.width = `${gpuPct}%`;
+    const gpuSub = $('#tele-gpu-sub');
+    if (gpuSub) gpuSub.textContent = `${gpu.name || 'NVIDIA RTX 3050'} (${gpu.vram_used_mb || 0}/${gpu.vram_total_mb || 4096} MB)`;
 
     // RAM
     const ram = hw.ram || {};
-    $('#tele-ram-val').textContent = `${ram.percent || 0}%`;
-    $('#tele-ram-bar').style.width = `${ram.percent || 0}%`;
-    $('#tele-ram-sub').textContent = `${ram.used_gb || 0} / ${ram.total_gb || 16} GB`;
+    const ramEl = $('#tele-ram-val');
+    if (ramEl) ramEl.textContent = `${ram.percent || 0}%`;
+    const ramBar = $('#tele-ram-bar');
+    if (ramBar) ramBar.style.width = `${ram.percent || 0}%`;
+    const ramSub = $('#tele-ram-sub');
+    if (ramSub) ramSub.textContent = `${ram.used_gb || 0} / ${ram.total_gb || 16} GB Active`;
 
-    // Disk / Storage
+    // Storage
     const disk = hw.storage || hw.disk || {};
-    $('#tele-disk-val').textContent = `${disk.free_gb || 0} GB free`;
-    $('#tele-disk-bar').style.width = `${disk.percent || 0}%`;
-    $('#tele-disk-sub').textContent = `${disk.path || 'D:'} (${disk.total_gb || 0} GB total)`;
+    const diskEl = $('#tele-disk-val');
+    if (diskEl) diskEl.textContent = `${disk.free_gb || 0} GB free`;
+    const diskBar = $('#tele-disk-bar');
+    if (diskBar) diskBar.style.width = `${disk.percent || 0}%`;
+    const diskSub = $('#tele-disk-sub');
+    if (diskSub) diskSub.textContent = `${disk.path || 'D:'} (${disk.total_gb || 0} GB total)`;
 
-    // Agent status badge
+    // Local Agent Status (Dashboard + Topbar + Sidebar)
     const st = (d.agent_status || hw.agent_status || 'idle').toLowerCase();
     const statusMap = {
       processing: {label: 'Local Agent Processing', dot: 'blue'},
@@ -1488,22 +1681,42 @@ async function refreshDashboardTelemetry() {
       offline: {label: 'Local Agent Offline', dot: 'red'}
     };
     const sinfo = statusMap[st] || statusMap.online;
-    $('#agent-status-label').textContent = sinfo.label;
-    $('#agent-status-pill .status-dot').className = `status-dot ${sinfo.dot}`;
 
-    // Active task banner
+    const dashLbl = $('#agent-status-label');
+    if (dashLbl) dashLbl.textContent = sinfo.label;
+    const dashPillDot = $('#agent-status-pill .status-dot');
+    if (dashPillDot) dashPillDot.className = `status-dot ${sinfo.dot}`;
+
+    const topbarText = $('#topbar-agent-text');
+    if (topbarText) topbarText.textContent = sinfo.label;
+    const topbarDot = $('#topbar-agent-dot');
+    if (topbarDot) topbarDot.className = `status-dot ${sinfo.dot}`;
+
+    const sideTitle = $('#sidebar-agent-title');
+    if (sideTitle) sideTitle.textContent = sinfo.label;
+    const sideDot = $('#sidebar-agent-dot');
+    if (sideDot) sideDot.className = `status-indicator-dot ${sinfo.dot}`;
+
+    // Active Processing Task Banner
     const banner = $('#live-processing-banner');
     const at = d.active_task || d.active_task_info;
-    if (at) {
-      $('#active-task-title').textContent = at.title || at.video_id;
-      $('#active-task-stage').textContent = at.stage || 'running';
-      $('#active-task-clips').textContent = at.clips_count || at.clips_created || at.clips_completed || 0;
-      $('#active-task-device').textContent = at.device || 'NVIDIA RTX 3050 (NVENC)';
-      const pVal = at.progress ?? (at.progress_percent ? at.progress_percent / 100 : 0);
-      $('#active-task-bar').style.width = `${Math.round(pVal * 100)}%`;
-      banner.style.display = 'flex';
-    } else {
-      banner.style.display = 'none';
+    if (banner) {
+      if (at) {
+        const titleEl = $('#active-task-title');
+        if (titleEl) titleEl.textContent = at.title || at.video_id;
+        const stageEl = $('#active-task-stage');
+        if (stageEl) stageEl.textContent = at.stage || 'processing';
+        const clipsEl = $('#active-task-clips');
+        if (clipsEl) clipsEl.textContent = at.clips_count || at.clips_created || at.clips_completed || 0;
+        const devEl = $('#active-task-device');
+        if (devEl) devEl.textContent = at.device || 'NVIDIA RTX 3050';
+        const pVal = at.progress ?? (at.progress_percent ? at.progress_percent / 100 : 0);
+        const pbar = $('#active-task-bar');
+        if (pbar) pbar.style.width = `${Math.round(pVal * 100)}%`;
+        banner.style.display = 'flex';
+      } else {
+        banner.style.display = 'none';
+      }
     }
   } catch (err) {}
 }
@@ -1511,26 +1724,26 @@ async function refreshDashboardTelemetry() {
 async function refreshDashboardStats() {
   try {
     const s = await api('/dashboard/stats');
-    $('#kpi-videos').textContent = s.total_videos_selected ?? s.videos_selected ?? 0;
-    $('#kpi-clips').textContent = s.total_clips_generated ?? s.clips_generated ?? 0;
-    $('#kpi-posted').textContent = s.total_posted ?? s.clips_posted ?? 0;
-    $('#kpi-scheduled').textContent = s.total_pending ?? s.clips_pending ?? 0;
-    $('#kpi-processing').textContent = s.total_processing ?? s.clips_processing ?? 0;
-    $('#kpi-failed').textContent = s.total_failed ?? s.failed_uploads ?? 0;
+    const vEl = $('#kpi-videos'); if (vEl) vEl.textContent = s.total_videos_selected ?? s.videos_selected ?? 0;
+    const cEl = $('#kpi-clips'); if (cEl) cEl.textContent = s.total_clips_generated ?? s.clips_generated ?? 0;
+    const pEl = $('#kpi-posted'); if (pEl) pEl.textContent = s.total_posted ?? s.clips_posted ?? 0;
+    const sEl = $('#kpi-scheduled'); if (sEl) sEl.textContent = s.total_pending ?? s.clips_pending ?? 0;
+    const prEl = $('#kpi-processing'); if (prEl) prEl.textContent = s.total_processing ?? s.clips_processing ?? 0;
+    const fEl = $('#kpi-failed'); if (fEl) fEl.textContent = s.total_failed ?? s.failed_uploads ?? 0;
 
-    // Daily SVG chart
+    // Daily Chart
     renderDailyChart(s.daily_uploads || []);
 
     // Platforms
     const p = s.platforms || {};
     const yt = p.youtube || 0, ig = p.instagram || 0, fb = p.facebook || 0;
     const maxP = Math.max(yt, ig, fb, 1);
-    $('#plat-val-yt').textContent = yt;
-    $('#plat-val-ig').textContent = ig;
-    $('#plat-val-fb').textContent = fb;
-    $('#plat-bar-yt').style.width = `${(yt / maxP) * 100}%`;
-    $('#plat-bar-ig').style.width = `${(ig / maxP) * 100}%`;
-    $('#plat-bar-fb').style.width = `${(fb / maxP) * 100}%`;
+    const ytEl = $('#plat-val-yt'); if (ytEl) ytEl.textContent = yt;
+    const igEl = $('#plat-val-ig'); if (igEl) igEl.textContent = ig;
+    const fbEl = $('#plat-val-fb'); if (fbEl) fbEl.textContent = fb;
+    const ytB = $('#plat-bar-yt'); if (ytB) ytB.style.width = `${(yt / maxP) * 100}%`;
+    const igB = $('#plat-bar-ig'); if (igB) igB.style.width = `${(ig / maxP) * 100}%`;
+    const fbB = $('#plat-bar-fb'); if (fbB) fbB.style.width = `${(fb / maxP) * 100}%`;
   } catch (err) {}
 }
 
@@ -1538,20 +1751,21 @@ function renderDailyChart(days) {
   const svg = $('#svg-daily');
   if (!svg || !days.length) return;
   const maxVal = Math.max(...days.map(d => d.count), 5);
-  const width = 500, height = 150, padB = 25, padT = 15;
+  const width = 500, height = 150, padB = 26, padT = 18;
   const colW = width / days.length;
 
   let html = '';
   days.forEach((d, i) => {
     const barH = (d.count / maxVal) * (height - padB - padT);
-    const x = i * colW + 12;
+    const x = i * colW + 10;
     const y = height - padB - barH;
-    const barW = Math.max(colW - 24, 16);
+    const barW = Math.max(colW - 20, 16);
     html += `
-      <g class="chart-bar-group">
-        <rect x="${x}" y="${y}" width="${barW}" height="${barH}" rx="4" fill="var(--color-primary, #6366f1)"></rect>
-        <text x="${x + barW / 2}" y="${y - 4}" text-anchor="middle" font-size="10" fill="var(--color-text, #333)">${d.count}</text>
-        <text x="${x + barW / 2}" y="${height - 6}" text-anchor="middle" font-size="10" fill="var(--color-muted, #888)">${esc(d.label || d.date.slice(5))}</text>
+      <g class="chart-bar-group" style="cursor:pointer;">
+        <title>${d.date}: ${d.count} clips published</title>
+        <rect x="${x}" y="${y}" width="${barW}" height="${barH || 2}" rx="3" fill="${d.count > 0 ? '#4f46e5' : '#e2e8f0'}"></rect>
+        <text x="${x + barW / 2}" y="${y - 4}" text-anchor="middle" font-size="10" font-weight="600" fill="#0f172a">${d.count}</text>
+        <text x="${x + barW / 2}" y="${height - 6}" text-anchor="middle" font-size="9" fill="#64748b">${esc(d.label || d.date.slice(5))}</text>
       </g>
     `;
   });
@@ -1559,63 +1773,128 @@ function renderDailyChart(days) {
 }
 
 async function refreshDashboardTasks() {
-  const topic = $('#filter-topic').value;
-  const plat = $('#filter-platform').value;
-  const stat = $('#filter-status').value;
+  const topicEl = $('#filter-topic');
+  const platEl = $('#filter-platform');
+  const statEl = $('#filter-status');
+  const searchEl = $('#filter-search');
   const tbody = $('#dashboard-tbody');
   if (!tbody) return;
 
+  const topic = topicEl ? topicEl.value : '';
+  const plat = platEl ? platEl.value : '';
+  const stat = statEl ? statEl.value : '';
+  const search = searchEl ? searchEl.value.trim() : '';
+
   try {
-    const q = new URLSearchParams({topic, platform: plat, status: stat}).toString();
+    const q = new URLSearchParams({
+      topic,
+      platform: plat,
+      status: stat,
+      search
+    }).toString();
+
     const res = await api(`/dashboard/tasks?${q}`);
     const rows = res.tasks || [];
 
     // Populate topics dropdown if empty
-    const sel = $('#filter-topic');
-    if (sel.options.length <= 1 && res.topics) {
+    if (topicEl && topicEl.options.length <= 1 && res.topics) {
       res.topics.forEach(t => {
+        if (!t) return;
         const opt = document.createElement('option');
         opt.value = t; opt.textContent = t;
-        sel.appendChild(opt);
+        topicEl.appendChild(opt);
       });
     }
 
     if (!rows.length) {
-      tbody.innerHTML = `<tr><td colspan="9" class="muted" style="text-align:center; padding:2rem;">No matching tasks found.</td></tr>`;
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="8">
+            <div class="saas-empty-state">
+              <div class="saas-empty-icon">${icon('inbox', 24)}</div>
+              <div class="saas-empty-title">No Video Tasks in Queue</div>
+              <div class="saas-empty-desc">No tasks match your current filter criteria. Use AI Discovery to find and queue trending YouTube videos.</div>
+              <a href="#/discover" class="btn btn-sm btn-primary">${icon('sparkles', 12)} <span>Find Trending Videos</span></a>
+            </div>
+          </td>
+        </tr>
+      `;
       return;
     }
 
+    const procBadges = {
+      completed: '<span class="badge ok">' + icon('circle-check', 13) + '<span>Completed</span></span>',
+      processing: '<span class="badge info">' + icon('loader-circle', 13, 'spin') + '<span>Processing</span></span>',
+      downloading: '<span class="badge info">' + icon('loader-circle', 13, 'spin') + '<span>Downloading</span></span>',
+      transcribing: '<span class="badge info">' + icon('loader-circle', 13, 'spin') + '<span>Transcribing</span></span>',
+      rendering: '<span class="badge info">' + icon('loader-circle', 13, 'spin') + '<span>Rendering</span></span>',
+      queued: '<span class="badge info">' + icon('clock', 13) + '<span>Queued</span></span>',
+      pending: '<span class="badge info">' + icon('clock', 13) + '<span>Queued</span></span>',
+      failed: '<span class="badge bad">' + icon('circle-x', 13) + '<span>Failed</span></span>',
+      paused: '<span class="badge warn">' + icon('circle-alert', 13) + '<span>Paused</span></span>'
+    };
+
+    const upBadges = {
+      live: '<span class="badge ok">' + icon('check', 13) + '<span>Published</span></span>',
+      scheduled: '<span class="badge info">' + icon('clock', 13) + '<span>Scheduled</span></span>',
+      failed: '<span class="badge bad">' + icon('circle-x', 13) + '<span>Failed</span></span>',
+      draft: '<span class="badge"><span>Draft</span></span>',
+      pending: '<span class="badge"><span>Pending</span></span>'
+    };
+
     tbody.innerHTML = rows.map(r => {
-      const procBadges = {
-        completed: '<span class="badge ok">' + icon('circle-check', 13) + 'Completed</span>',
-        processing: '<span class="badge info">' + icon('loader-circle', 13, 'spin') + 'Processing</span>',
-        pending: '<span class="badge">Pending</span>',
-        failed: '<span class="badge bad">' + icon('circle-x', 13) + 'Failed</span>'
-      };
-      const upBadges = {
-        live: '<span class="badge ok">' + icon('check', 13) + 'Posted</span>',
-        scheduled: '<span class="badge info">' + icon('clock', 13) + 'Scheduled</span>',
-        failed: '<span class="badge bad">' + icon('circle-x', 13) + 'Failed</span>',
-        pending: '<span class="badge">Pending</span>'
-      };
+      const vTitle = r.video_title || r.title || 'Trending Video';
+      const pStage = (r.processing_stage || r.processing_status || 'queued').toLowerCase();
+      const uState = (r.upload_status || 'draft').toLowerCase();
+      const pPlatform = r.platform || 'youtube';
+      const clipNumber = r.clip_no || r.clip_number || 1;
+      const thumbUrl = r.thumbnail || (r.video_id ? `https://i.ytimg.com/vi/${r.video_id}/hqdefault.jpg` : '');
+
       return `
         <tr>
           <td class="task-cell-video">
-            <div style="font-weight:500;">${esc(r.video_title)}</div>
-            ${r.post_id ? `<a class="link" href="#/post/${r.batch_id || ''}"><small>View in PostKaro</small></a>` : ''}
+            <div style="display:flex; align-items:center; gap:10px;">
+              ${thumbUrl ? `<img src="${esc(thumbUrl)}" class="task-thumb" alt="" loading="lazy">` : '<div class="task-thumb" style="display:flex; align-items:center; justify-content:center; color:#64748b;">' + icon('film', 16) + '</div>'}
+              <div style="min-width:0; flex:1;">
+                <div class="task-video-title" title="${esc(vTitle)}">${esc(vTitle)}</div>
+                ${r.post_id ? `<a class="link" href="#/post/${r.batch_id || ''}" style="font-size:11px; display:inline-block; margin-top:2px;">View in PostKaro &rarr;</a>` : ''}
+              </div>
+            </div>
           </td>
           <td><span class="chip">${esc(r.topic || 'General')}</span></td>
-          <td><b class="num">${r.clip_number || 1}</b></td>
-          <td>${procBadges[r.processing_status] || esc(r.processing_status)}</td>
-          <td>${upBadges[r.upload_status] || esc(r.upload_status)}</td>
-          <td>${esc(r.scheduled_date || '--')}</td>
-          <td>${esc(r.scheduled_time || '--')}</td>
-          <td>${r.platform ? pf(r.platform, 14) : '<span class="muted">All</span>'}</td>
-          <td><small>${esc(r.posted_time || '--')}</small></td>
+          <td><b class="num" style="font-weight:700;">#${clipNumber}</b></td>
+          <td>${procBadges[pStage] || `<span class="badge">${esc(pStage)}</span>`}</td>
+          <td>${upBadges[uState] || `<span class="badge">${esc(uState)}</span>`}</td>
+          <td>
+            <div style="font-size:12px; font-weight:500;">${esc(r.scheduled_date || '-')}</div>
+            <small class="muted" style="font-size:11px;">${esc(r.scheduled_time || '')}</small>
+          </td>
+          <td>${pf(pPlatform, 13)}</td>
+          <td>
+            <div style="display:flex; align-items:center; gap:6px;">
+              ${pStage === 'processing' ? `<button class="btn btn-sm btn-ghost" data-task-act="pause" data-tid="${r.task_id}">Pause</button>` : ''}
+              ${pStage === 'paused' ? `<button class="btn btn-sm btn-primary" data-task-act="resume" data-tid="${r.task_id}">Resume</button>` : ''}
+              ${pStage === 'failed' ? `<button class="btn btn-sm btn-primary" data-task-act="retry" data-tid="${r.task_id}">${icon('rotate-ccw', 12)}<span>Retry</span></button>` : ''}
+              ${r.batch_id ? `<a href="#/post/${r.batch_id}" class="btn btn-sm btn-ghost" title="Open Batch">${icon('external-link', 12)}</a>` : ''}
+            </div>
+          </td>
         </tr>
       `;
     }).join('');
-  } catch (err) {}
+  } catch (err) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="8">
+          <div class="saas-empty-state">
+            <div class="saas-empty-icon" style="color:#ef4444; background:#fef2f2;">${icon('circle-alert', 24)}</div>
+            <div class="saas-empty-title">Failed to load task queue</div>
+            <div class="saas-empty-desc">${esc(err.message || 'Network connection error')}. Please check your connection or retry.</div>
+            <button class="btn btn-sm btn-primary" onclick="refreshDashboardTasks()">${icon('rotate-ccw', 12)} <span>Retry Loading Tasks</span></button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }
 }
 
 // ---------------------------------------------------------------- start
@@ -1625,6 +1904,50 @@ async function refreshDashboardTasks() {
     $('#main').innerHTML = `<div class="notice warn">${icon('circle-alert')}<span>${esc(e.message)}</span></div>`;
     return;
   }
+
+  // Wire sidebar collapse & mobile drawer toggle
+  const collapseBtn = $('#sidebar-collapse-btn');
+  if (collapseBtn) {
+    collapseBtn.onclick = () => {
+      $('#saas-sidebar').classList.toggle('collapsed');
+    };
+  }
+  const mobileBtn = $('#mobile-menu-toggle');
+  const backdrop = $('#sidebar-backdrop');
+  if (mobileBtn && backdrop) {
+    mobileBtn.onclick = () => {
+      $('#saas-sidebar').classList.add('mobile-open');
+      backdrop.classList.add('active');
+    };
+    backdrop.onclick = () => {
+      $('#saas-sidebar').classList.remove('mobile-open');
+      backdrop.classList.remove('active');
+    };
+  }
+
+  // Global search shortcut '/'
+  const gSearch = $('#global-search-input');
+  if (gSearch) {
+    window.addEventListener('keydown', (e) => {
+      if (e.key === '/' && document.activeElement !== gSearch && !['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) {
+        e.preventDefault();
+        gSearch.focus();
+      }
+    });
+    gSearch.onkeydown = (e) => {
+      if (e.key === 'Enter' && gSearch.value.trim()) {
+        location.hash = '#/discover';
+        setTimeout(() => {
+          const qInput = $('#disco-query');
+          if (qInput) {
+            qInput.value = gSearch.value.trim();
+            $('#disco-search-btn')?.click();
+          }
+        }, 150);
+      }
+    };
+  }
+
   route();
   setInterval(() => loadState().catch(() => {}), 30000);
 })();

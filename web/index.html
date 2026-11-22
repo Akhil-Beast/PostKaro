@@ -5,29 +5,150 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="pk-key" content="{{KEY}}">
 <meta name="color-scheme" content="light">
-<meta name="description" content="PostKaro schedules your ClipKaro clips to YouTube Shorts, Instagram Reels and your Facebook Page, from this computer.">
-<title>PostKaro</title>
+<meta name="description" content="PostKaro — Professional AI-Powered Video Discovery, Clipping & Multi-Platform Auto-Publishing SaaS.">
+<title>PostKaro | AI Content Automation SaaS</title>
 <link rel="icon" type="image/png" href="/static/img/favicon.png">
 <link rel="preload" href="/static/fonts/hanken-grotesk-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/static/tokens.css?v={{VERSION}}">
 <link rel="stylesheet" href="/static/base.css?v={{VERSION}}">
 <link rel="stylesheet" href="/static/style.css?v={{VERSION}}">
 </head>
-<body>
-<header class="topbar">
-  <a class="brand" href="#/" aria-label="PostKaro home">PostKaro</a>
-  <nav class="tabs" aria-label="Main">
-    <a class="tab" href="#/" data-nav="post">Post</a>
-    <a class="tab" href="#/discover" data-nav="discover">AI Discover</a>
-    <a class="tab" href="#/queue" data-nav="queue">Queue <span class="count" id="qcount" aria-label="posts waiting"></span></a>
-    <a class="tab" href="#/posted" data-nav="posted">Posted</a>
-    <a class="tab" href="#/dashboard" data-nav="dashboard">Dashboard</a>
-  </nav>
-  <a class="tab acct-link" href="#/accounts" data-nav="accounts">
-    <span class="marks" id="marks"></span><span class="label">Accounts</span>
-  </a>
-</header>
-<main id="main" class="page" tabindex="-1"><p class="muted">Loading…</p></main>
+<body class="saas-app">
+<div class="saas-shell" id="saas-shell">
+
+  <!-- Mobile Backdrop Overlay -->
+  <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
+
+  <!-- SaaS Sidebar Navigation -->
+  <aside class="saas-sidebar" id="saas-sidebar">
+    <div class="sidebar-brand">
+      <a href="#/dashboard" class="brand-link">
+        <span class="brand-badge-icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z" /></svg>
+        </span>
+        <span class="brand-name">PostKaro <span class="saas-pro-badge">PRO</span></span>
+      </a>
+      <button class="sidebar-toggle-btn" id="sidebar-collapse-btn" title="Toggle sidebar" aria-label="Toggle sidebar">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" x2="20" y1="12" y2="12" /><line x1="4" x2="20" y1="6" y2="6" /><line x1="4" x2="20" y1="18" y2="18" /></svg>
+      </button>
+    </div>
+
+    <div class="sidebar-section-title">CORE PLATFORM</div>
+    <nav class="sidebar-nav" aria-label="Main Navigation">
+      <a class="nav-item" href="#/dashboard" data-nav="dashboard">
+        <span class="nav-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="7" height="9" x="3" y="3" rx="1" /><rect width="7" height="5" x="14" y="3" rx="1" /><rect width="7" height="9" x="14" y="12" rx="1" /><rect width="7" height="5" x="3" y="16" rx="1" /></svg></span>
+        <span class="nav-label">Dashboard</span>
+      </a>
+      <a class="nav-item" href="#/" data-nav="post">
+        <span class="nav-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" /><path d="m9 8 6 4-6 4Z" /></svg></span>
+        <span class="nav-label">Post Karo</span>
+      </a>
+      <a class="nav-item" href="#/discover" data-nav="discover">
+        <span class="nav-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z" /></svg></span>
+        <span class="nav-label">Video Discovery</span>
+        <span class="nav-badge-pill">AI</span>
+      </a>
+      <a class="nav-item" href="#/queue" data-nav="queue">
+        <span class="nav-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg></span>
+        <span class="nav-label">Processing Queue</span>
+        <span class="count" id="qcount" aria-label="posts waiting"></span>
+      </a>
+    </nav>
+
+    <div class="sidebar-section-title">PUBLISHING & AUDIT</div>
+    <nav class="sidebar-nav">
+      <a class="nav-item" href="#/queue" data-nav="scheduled">
+        <span class="nav-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></span>
+        <span class="nav-label">Scheduled Posts</span>
+      </a>
+      <a class="nav-item" href="#/posted" data-nav="posted">
+        <span class="nav-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"/><path d="m22 2-7 20-4-9-9-4 20-7z"/></svg></span>
+        <span class="nav-label">Published Posts</span>
+      </a>
+      <a class="nav-item" href="#/dashboard" data-nav="analytics">
+        <span class="nav-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" x2="18" y1="20" y2="10" /><line x1="12" x2="12" y1="20" y2="4" /><line x1="6" x2="6" y1="20" y2="14" /></svg></span>
+        <span class="nav-label">Analytics & Reports</span>
+      </a>
+      <a class="nav-item" href="#/dashboard" data-nav="monitor">
+        <span class="nav-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="8" x="2" y="2" rx="2" ry="2" /><rect width="20" height="8" x="2" y="14" rx="2" ry="2" /><line x1="6" x2="6.01" y1="6" y2="6" /><line x1="6" x2="6.01" y1="18" y2="18" /></svg></span>
+        <span class="nav-label">Status Monitor</span>
+      </a>
+      <a class="nav-item" href="#/accounts" data-nav="accounts">
+        <span class="nav-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg></span>
+        <span class="nav-label">Settings</span>
+        <span class="marks" id="marks"></span>
+      </a>
+    </nav>
+
+    <!-- Sidebar Footer / Hardware Status Quick Pill -->
+    <div class="sidebar-footer">
+      <div class="agent-compact-widget">
+        <div class="agent-widget-head">
+          <span class="status-indicator-dot" id="sidebar-agent-dot"></span>
+          <span class="agent-widget-title" id="sidebar-agent-title">Local Agent Online</span>
+        </div>
+        <div class="agent-widget-meta" id="sidebar-agent-meta">RTX 3050 &middot; CUDA Ready</div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Main Application Body -->
+  <div class="saas-main-wrapper">
+    <!-- Top Navigation Bar -->
+    <header class="saas-topbar">
+      <div class="topbar-left">
+        <button class="mobile-menu-btn" id="mobile-menu-toggle" aria-label="Open menu">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" x2="20" y1="12" y2="12" /><line x1="4" x2="20" y1="6" y2="6" /><line x1="4" x2="20" y1="18" y2="18" /></svg>
+        </button>
+        <div class="breadcrumb" id="topbar-breadcrumb">
+          <span class="bc-root">PostKaro</span>
+          <span class="bc-sep">/</span>
+          <span class="bc-current" id="bc-current-page">Dashboard</span>
+        </div>
+      </div>
+
+      <div class="topbar-center">
+        <div class="topbar-search">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+          <input type="search" id="global-search-input" placeholder="Search videos, topics, tasks... (Press /)" aria-label="Global search">
+        </div>
+      </div>
+
+      <div class="topbar-right">
+        <!-- Local Agent Badge -->
+        <div class="topbar-agent-pill" id="topbar-agent-pill">
+          <span class="status-dot green" id="topbar-agent-dot"></span>
+          <span class="agent-pill-text" id="topbar-agent-text">Local Agent Online</span>
+        </div>
+
+        <!-- Quick CTA -->
+        <a href="#/discover" class="btn btn-sm btn-primary header-cta-btn">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z" /></svg>
+          <span>Discover Videos</span>
+        </a>
+
+        <!-- Notifications -->
+        <button class="icon-btn-round" id="topbar-notif-btn" title="System Notifications" aria-label="Notifications">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" /><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" /></svg>
+        </button>
+
+        <!-- User Profile Avatar -->
+        <a href="#/accounts" class="topbar-avatar" title="Account Settings">
+          <span class="avatar-letters">AR</span>
+        </a>
+      </div>
+    </header>
+
+    <!-- Page Content Container -->
+    <main id="main" class="saas-content-area" tabindex="-1">
+      <div class="saas-loading-skeleton">
+        <div class="skel-row"></div>
+        <div class="skel-cards"><div class="skel-card"></div><div class="skel-card"></div><div class="skel-card"></div></div>
+      </div>
+    </main>
+  </div>
+</div>
+
 <div id="toasts" role="status" aria-live="polite"></div>
 <dialog class="modal" id="modal" aria-labelledby="modal-title"></dialog>
 <dialog class="preview" id="preview" aria-labelledby="preview-title"></dialog>
