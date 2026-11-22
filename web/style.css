@@ -1253,6 +1253,36 @@ dialog.preview::backdrop { background: var(--color-preview-scrim); }
 .pbar-fill.ig { background: #ec4899; }
 .pbar-fill.fb { background: #3b82f6; }
 
+/* Fix status and action column widths so badges and buttons never wrap */
+.task-table th,
+.task-table td {
+  vertical-align: middle;
+}
+.task-table td:nth-child(2),
+.task-table td:nth-child(3),
+.task-table td:nth-child(4),
+.task-table td:nth-child(5) {
+  white-space: nowrap;
+}
+
+/* Ensure all badges never wrap, regardless of container */
+.badge, span.badge {
+  white-space: nowrap !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 4px !important;
+  flex-wrap: nowrap !important;
+  overflow: visible !important;
+  word-break: normal !important;
+  overflow-wrap: normal !important;
+  min-width: fit-content !important;
+}
+.badge * {
+  white-space: nowrap !important;
+  word-break: normal !important;
+}
+
+
 /* Status Badges */
 .badge {
   display: inline-flex !important;
