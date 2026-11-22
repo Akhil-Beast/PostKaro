@@ -732,6 +732,13 @@ def pipeline_action(request, body):
         pipeline.set_paused(False)
         pipeline.start_background_pipeline()
         return {'status': 'resumed'}
+    elif action == 'retry':
+        task_id = body.get('task_id')
+        if task_id:
+            db.update_video_task(task_id, stage='queued', progress=0.0, error=None)
+            pipeline.set_paused(False)
+            pipeline.start_background_pipeline()
+            return {'status': 'retried'}
     return {'status': 'unknown'}
 
 

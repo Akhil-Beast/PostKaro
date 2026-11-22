@@ -21,6 +21,9 @@ CLIPKARO_PY = CLIPKARO_DIR / '.venv' / 'Scripts' / 'python.exe'
 if not CLIPKARO_PY.exists():
     CLIPKARO_PY = Path(sys.executable)
 
+def has_local_clipkaro():
+    return CLIPKARO_DIR.exists() and (CLIPKARO_DIR / 'run.py').exists()
+
 _LOCK = threading.Lock()
 _WORKER_THREAD = None
 _PAUSED = False
@@ -128,6 +131,11 @@ def process_task(task):
 
     cp['proj_name'] = proj_name
     cp['proj_dir'] = str(proj_dir)
+
+    if not has_local_clipkaro():
+        print(f"[Pipeline] Cloud instance: task #{tid} kept queued for local PC GPU agent.")
+        db.update_video_task(tid, stage='queued', error="Waiting for local PC GPU worker")
+        return False
 
     print(f"[Pipeline] Processing task #{tid}: {title} (Stage: {task.get('stage')})")
 
@@ -263,8 +271,12 @@ def start_background_pipeline():
     if _WORKER_THREAD and _WORKER_THREAD.is_alive():
         return
 
+    if not has_local_clipkaro():
+        print("[Pipeline] Running on cloud without local ClipKaro. Hardware processing delegated to local PC agent.")
+        return
+
     def _loop():
-        print("[Pipeline] Hardware processing agent started.")
+        print("[Pipeline] Hardware processing agent started on local GPU.")
         while True:
             try:
                 processed = run_queue_step()

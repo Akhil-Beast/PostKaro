@@ -1151,7 +1151,7 @@ async function loadDiscoveryTasks() {
   if (!box) return;
   try {
     const res = await api('/discovery/tasks');
-    const tasks = res.tasks || [];
+    const tasks = Array.isArray(res) ? res : (res.tasks || []);
     if (!tasks.length) {
       box.innerHTML = `<p class="muted">No videos in processing queue. Search a topic or paste a URL above to start clipping!</p>`;
       return;
@@ -1162,11 +1162,11 @@ async function loadDiscoveryTasks() {
         <table class="task-table">
           <thead>
             <tr>
-              <th>Video</th>
+              <th style="min-width:260px;">Video</th>
               <th>Topic</th>
               <th>Status</th>
               <th>Stage</th>
-              <th>Progress</th>
+              <th style="min-width:140px;">Progress</th>
               <th>Clips</th>
               <th>Hardware</th>
               <th>Actions</th>
@@ -1174,40 +1174,49 @@ async function loadDiscoveryTasks() {
           </thead>
           <tbody>
             ${tasks.map(t => {
-              const pct = Math.round(t.progress || 0);
+              const pct = Math.round((t.progress || 0) * (t.progress <= 1.0 ? 100 : 1));
+              const status = t.stage === 'completed' ? 'completed' : (t.status || t.stage || 'queued');
               const statusBadges = {
-                pending: '<span class="badge">Pending</span>',
-                processing: '<span class="badge info">' + icon('loader-circle', 13, 'spin') + 'Processing</span>',
-                completed: '<span class="badge ok">' + icon('circle-check', 13) + 'Completed</span>',
-                failed: '<span class="badge bad">' + icon('circle-x', 13) + 'Failed</span>',
-                paused: '<span class="badge warn">Paused</span>'
+                queued: '<span class="badge info">' + icon('clock', 13) + '<span>Queued</span></span>',
+                pending: '<span class="badge info">' + icon('clock', 13) + '<span>Waiting for PC</span></span>',
+                downloading: '<span class="badge info">' + icon('loader-circle', 13, 'spin') + '<span>Downloading</span></span>',
+                transcribing: '<span class="badge info">' + icon('loader-circle', 13, 'spin') + '<span>Transcribing</span></span>',
+                picking_moments: '<span class="badge info">' + icon('wand-sparkles', 13) + '<span>Picking Moments</span></span>',
+                rendering: '<span class="badge info">' + icon('loader-circle', 13, 'spin') + '<span>Rendering</span></span>',
+                processing: '<span class="badge info">' + icon('loader-circle', 13, 'spin') + '<span>Processing</span></span>',
+                completed: '<span class="badge ok">' + icon('circle-check', 13) + '<span>Completed</span></span>',
+                failed: '<span class="badge bad">' + icon('circle-x', 13) + '<span>Failed</span></span>',
+                paused: '<span class="badge warn">' + icon('circle-alert', 13) + '<span>Paused</span></span>'
               };
+              const thumbUrl = t.thumbnail || (t.video_id ? `https://i.ytimg.com/vi/${t.video_id}/hqdefault.jpg` : '');
               return `
                 <tr>
                   <td class="task-cell-video">
-                    <div style="display:flex; align-items:center; gap:0.6rem;">
-                      ${t.thumbnail ? `<img src="${esc(t.thumbnail)}" class="task-thumb" alt="">` : ''}
-                      <div>
-                        <div class="task-video-title">${esc(t.title || t.video_id)}</div>
-                        <small class="muted">${t.video_id}</small>
+                    <div style="display:flex; align-items:center; gap:0.75rem;">
+                      ${thumbUrl ? `<img src="${esc(thumbUrl)}" class="task-thumb" alt="" loading="lazy">` : '<div class="task-thumb"></div>'}
+                      <div style="min-width:0; flex:1;">
+                        <div class="task-video-title" title="${esc(t.title || t.video_id)}">${esc(t.title || t.video_id)}</div>
+                        <small class="muted" style="display:block; margin-top:2px;">${esc(t.channel || t.video_id)}</small>
                       </div>
                     </div>
                   </td>
                   <td><span class="chip">${esc(t.topic || 'General')}</span></td>
-                  <td>${statusBadges[t.status] || `<span class="badge">${esc(t.status)}</span>`}</td>
+                  <td>${statusBadges[status] || `<span class="badge">${esc(status)}</span>`}</td>
                   <td><code>${esc(t.stage || 'queued')}</code></td>
                   <td>
-                    <div class="pbar-track">
-                      <div class="pbar-fill" style="width:${pct}%;"></div>
+                    <div style="display:flex; align-items:center; gap:6px;">
+                      <div class="pbar-track">
+                        <div class="pbar-fill" style="width:${pct}%;"></div>
+                      </div>
+                      <span class="num" style="font-size:11px; font-weight:600;">${pct}%</span>
                     </div>
-                    <small class="num">${pct}%</small>
                   </td>
-                  <td><b>${t.clips_created || 0}</b></td>
-                  <td><small class="muted">${esc(t.device || 'GPU NVENC')}</small></td>
+                  <td><b class="num">${t.clips_count || t.clips_created || 0}</b></td>
+                  <td><small class="muted">${esc(t.device || 'NVIDIA RTX 3050')}</small></td>
                   <td>
-                    ${t.status === 'processing' ? `<button class="btn btn-sm btn-ghost" data-task-act="pause" data-tid="${t.task_id}">Pause</button>` : ''}
-                    ${t.status === 'paused' ? `<button class="btn btn-sm btn-primary" data-task-act="resume" data-tid="${t.task_id}">Resume</button>` : ''}
-                    ${t.status === 'failed' ? `<button class="btn btn-sm" data-task-act="resume" data-tid="${t.task_id}">Retry</button>` : ''}
+                    ${t.status === 'processing' || status === 'processing' ? `<button class="btn btn-sm btn-ghost" data-task-act="pause" data-tid="${t.task_id}">Pause</button>` : ''}
+                    ${t.status === 'paused' || status === 'paused' ? `<button class="btn btn-sm btn-primary" data-task-act="resume" data-tid="${t.task_id}">Resume</button>` : ''}
+                    ${t.status === 'failed' || status === 'failed' ? `<button class="btn btn-sm btn-primary" data-task-act="retry" data-tid="${t.task_id}">${icon('rotate-ccw', 12)}<span>Retry</span></button>` : ''}
                   </td>
                 </tr>
               `;
@@ -1223,7 +1232,7 @@ async function loadDiscoveryTasks() {
         const tid = b.dataset.tid;
         try {
           await busy(b, () => api(`/pipeline/${act}`, 'POST', {task_id: tid}));
-          toast(`Task ${act}d.`, 'ok');
+          toast(`Task action "${act}" submitted.`, 'ok');
           loadDiscoveryTasks();
         } catch (e) {
           toast(e.message, 'bad');
