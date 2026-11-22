@@ -671,6 +671,19 @@ def discovery_queue(request, body):
     return {'queued': len(queued), 'tasks': queued}
 
 
+def discovery_update_task(request, body):
+    from . import db
+    task_id = body.get('task_id')
+    kwargs = {}
+    for k in ('stage', 'progress', 'error', 'clips_count'):
+        if k in body:
+            kwargs[k] = body[k]
+    if task_id:
+        db.update_video_task(task_id, **kwargs)
+        return {'status': 'updated'}
+    return {'status': 'error', 'message': 'missing task_id'}
+
+
 def discovery_tasks(request, body):
     from . import db
     stage = request.query_params.get('stage')
@@ -805,6 +818,7 @@ def routes():
         R('/api/discovery/search', api(discovery_search), methods=['POST']),
         R('/api/discovery/queue', api(discovery_queue), methods=['POST']),
         R('/api/discovery/tasks', api(discovery_tasks)),
+    R('/api/discovery/update_task', api(discovery_update_task), methods=['POST']),
         R('/api/dashboard/stats', api(dashboard_stats)),
         R('/api/dashboard/charts', api(dashboard_charts)),
         R('/api/dashboard/tasks', api(dashboard_tasks)),
