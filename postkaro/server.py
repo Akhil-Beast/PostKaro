@@ -681,7 +681,17 @@ def discovery_tasks(request, body):
 
 def dashboard_stats(request, body):
     from . import dashboard
-    return dashboard.get_stats()
+    stats = dashboard.get_stats()
+    try:
+        charts = dashboard.get_charts()
+        stats.update({
+            'daily_uploads': charts.get('daily', []),
+            'platforms': charts.get('platforms', {}),
+            'status_breakdown': charts.get('status_breakdown', {})
+        })
+    except Exception:
+        pass
+    return stats
 
 
 def dashboard_charts(request, body):

@@ -7,7 +7,10 @@ top 10 video sources for clip generation.
 import re
 import urllib.parse
 from datetime import datetime
-import yt_dlp
+try:
+    import yt_dlp
+except ImportError:
+    yt_dlp = None
 
 TOPIC_PRESETS = [
     'Gym Motivation',
@@ -162,6 +165,8 @@ def search_or_extract(query_or_url, max_results=10):
         'no_warnings': True,
     }
 
+    if not yt_dlp:
+        return {'query': query, 'type': 'error', 'error': 'yt-dlp is not installed on this server', 'videos': []}
     is_url = is_youtube_url(query)
     search_target = query if is_url else f"ytsearch25:{query}"
 

@@ -9,4 +9,6 @@ google-auth-oauthlib>=1.2
 google-auth-httplib2>=0.2
 google-api-python-client>=2.170
 httpx>=0.27                # only for the tests (Starlette's test client)
+psutil>=5.9.0              # hardware telemetry & resource monitoring
+yt-dlp>=2024.0.0           # trending video discovery & metadata extraction
 tzdata; sys_platform == "win32"   # time zones on Windows
