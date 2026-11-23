@@ -125,7 +125,15 @@ def with_lock(pid):
 def post_view(p, clip, s):
     when = db.parse(p['when_utc'])
     errors, warnings = rules.check(p['platform'], p['title'], p['body'], clip)
-    return {'id': p['id'], 'platform': p['platform'], 'enabled': bool(p['enabled']), 'title': p['title'],
+    plat = p['platform']
+    try:
+        cred = platform_credential_status(plat)
+        plat_allowed = cred['valid'] if plat in ('instagram', 'facebook') else True
+    except Exception:
+        plat_allowed = (plat == 'youtube')
+    is_enabled = bool(p['enabled']) and plat_allowed
+    return {'id': p['id'], 'platform': p['platform'], 'enabled': is_enabled, 'platform_ready': plat_allowed,
+            'title': p['title'],
             'body': p['body'], 'when': settings.to_local(when, s) if when else '', 'state': p['state'],
             'url': p['url'], 'error': p['error'], 'note': p.get('note'), 'errors': errors, 'warnings': warnings,
             'account': p.get('account') or '',
@@ -221,7 +229,12 @@ def edit_post(request, body):
             raise ApiError('No such post.', 404)
         f = {}
         if 'enabled' in body:
-            f['enabled'] = int(bool(body['enabled']))
+            will_enable = bool(body['enabled'])
+            if will_enable and p['platform'] in ('instagram', 'facebook'):
+                cred = platform_credential_status(p['platform'])
+                if not cred['valid']:
+                    raise ApiError(f"Cannot enable {p['platform'].title()}: valid login credentials or API credentials must be configured first.", 400)
+            f['enabled'] = int(will_enable)
         for k in ('title', 'body'):
             if k in body:
                 f[k] = body[k] or ''
@@ -824,12 +837,16 @@ def get_platform_statuses():
 
     # Enforce: If credentials are not provided or invalid, the platform MUST remain disabled
     updated = False
-    if not ig['valid'] and s.get('instagram_enabled'):
-        s['instagram_enabled'] = False
-        updated = True
-    if not fb['valid'] and s.get('facebook_enabled'):
-        s['facebook_enabled'] = False
-        updated = True
+    if not ig['valid']:
+        if s.get('instagram_enabled'):
+            s['instagram_enabled'] = False
+            updated = True
+        db.run("UPDATE posts SET enabled=0 WHERE platform='instagram' AND state='draft'")
+    if not fb['valid']:
+        if s.get('facebook_enabled'):
+            s['facebook_enabled'] = False
+            updated = True
+        db.run("UPDATE posts SET enabled=0 WHERE platform='facebook' AND state='draft'")
     if updated:
         settings.save(s)
 

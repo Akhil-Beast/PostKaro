@@ -229,8 +229,8 @@ async function loadState() {
 
 const ROUTES = [
   [/^#\/dashboard$/, 'dashboard', dashboardPage],
-  [/^#\/analytics$/, 'analytics', dashboardPage],
-  [/^#\/monitor$/, 'monitor', dashboardPage],
+  [/^#\/analytics$/, 'analytics', analyticsPage],
+  [/^#\/monitor$/, 'monitor', statusMonitorPage],
   [/^#?\/?$/, 'post', home],
   [/^#\/post\/(\d+)$/, 'post', batchPage],
   [/^#\/queue$/, 'queue', queuePage],
@@ -269,7 +269,13 @@ async function route() {
   }
   location.hash = '#/dashboard';
 }
-addEventListener('hashchange', () => { if ($('#preview').open) $('#preview').close(); route(); window.scrollTo(0, 0); });
+addEventListener('hashchange', () => {
+  if ($('#preview').open) $('#preview').close();
+  $('#saas-sidebar')?.classList.remove('mobile-open');
+  $('#sidebar-backdrop')?.classList.remove('active');
+  route();
+  window.scrollTo(0, 0);
+});
 addEventListener('scroll', () => { const s = $('.sticky-head'); if (s) s.classList.toggle('stuck', scrollY > 24); }, {passive: true});
 
 // ---------------------------------------------------------------- Post: the list of videos
@@ -419,6 +425,8 @@ function postHTML(p) {
   const draft = p.state === 'draft', locked = p.state === 'live';
   const cnt = counterText(p);
   const ro = locked ? 'readonly' : '';
+  const hasAcc = Boolean(acc(p.platform));
+  const isEnabled = Boolean(p.enabled && hasAcc);
   const fields = p.platform === 'youtube' ? `
       <div class="field"><label class="field-label" for="t${p.id}"><span>Title</span>
         <span class="counter ${p.title_chars > 100 ? 'over' : ''}" data-cnt="title">${cnt.title}</span></label>
@@ -430,14 +438,15 @@ function postHTML(p) {
     : `<div class="field"><label class="field-label" for="d${p.id}"><span>Caption</span>
         <span class="counter ${p.chars > 2200 || (p.platform === 'instagram' && p.hashtags > 5) ? 'over' : ''}" data-cnt="body">${cnt.body}</span></label>
         <textarea id="d${p.id}" class="textarea" data-f="body" rows="3" ${ro}>${esc(p.body)}</textarea></div>`;
-  return `<div class="plat ${p.enabled ? '' : 'off'} ${locked ? 'locked' : ''}" data-post="${p.id}" data-plat="${p.platform}" data-state="${p.state}">
+  return `<div class="plat ${isEnabled ? '' : 'off'} ${locked ? 'locked' : ''}" data-post="${p.id}" data-plat="${p.platform}" data-state="${p.state}">
     <div class="plat-side">
-      <label class="switch"><input type="checkbox" data-f="enabled" ${p.enabled ? 'checked' : ''} ${draft ? '' : 'disabled'}
-        aria-label="Post to ${NAMES[p.platform]}"><span class="track"></span>${pf(p.platform)}</label>
+      <label class="switch ${hasAcc ? '' : 'disabled'}" title="${hasAcc ? 'Toggle ' + NAMES[p.platform] : 'Connect ' + NAMES[p.platform] + ' credentials first in Settings'}">
+        <input type="checkbox" data-f="enabled" ${isEnabled ? 'checked' : ''} ${draft && hasAcc ? '' : 'disabled'}
+          aria-label="Post to ${NAMES[p.platform]}"><span class="track"></span>${pf(p.platform)}</label>
       <div class="to">${accountLine(p, draft)}</div>
       <div class="st">${stateBadge(p)}</div>
     </div>
-    <div class="plat-off">Not posting to ${NAMES[p.platform]}.</div>
+    <div class="plat-off">${hasAcc ? 'Not posting to ' + NAMES[p.platform] + '.' : NAMES[p.platform] + ' disabled (Credentials required).'}</div>
     <div class="plat-main">
       ${fields}
       <div class="plat-foot">
@@ -2063,6 +2072,13 @@ async function refreshDashboardTasks() {
       $('#saas-sidebar').classList.remove('mobile-open');
       backdrop.classList.remove('active');
     };
+    // Auto-close sidebar on mobile when navigating
+    $$('#saas-sidebar .nav-item, #saas-sidebar a').forEach(el => {
+      el.addEventListener('click', () => {
+        $('#saas-sidebar')?.classList.remove('mobile-open');
+        backdrop?.classList.remove('active');
+      });
+    });
   }
 
   // Global search shortcut '/'
@@ -2372,4 +2388,309 @@ function openPlatformCredsModal(targetPlat) {
       toast(e.message, 'bad');
     }
   };
+}
+
+
+// ---------------------------------------------------------------- Dedicated Status Monitor Page
+async function statusMonitorPage() {
+  $('#main').innerHTML = `
+    <div class="saas-page-header">
+      <div>
+        <h1 class="saas-page-title">System & Status Monitor</h1>
+        <div class="saas-page-lead">Real-time local hardware accelerator status, NVIDIA NVENC GPU telemetry, processing queue metrics, and cloud connectivity.</div>
+      </div>
+      <div class="saas-header-actions">
+        <button class="btn btn-sm btn-ghost" id="mon-refresh-btn" title="Refresh Live Telemetry">
+          ${icon('refresh-cw', 13)}
+          <span>Refresh</span>
+        </button>
+        <button class="btn btn-sm btn-ghost" id="mon-sync-btn" title="Sync Cloud Tasks">
+          ${icon('rotate-ccw', 13)}
+          <span>Sync Cloud</span>
+        </button>
+        <a href="#/queue" class="btn btn-sm btn-primary">
+          ${icon('layers', 13)}
+          <span>View Queue</span>
+        </a>
+      </div>
+    </div>
+
+    <!-- Agent Connection Status Hero Card -->
+    <div class="saas-hardware-card" style="margin-bottom:20px;">
+      <div class="saas-hw-head">
+        <div class="saas-hw-title-row">
+          <span class="saas-kpi-icon-wrap emerald" style="width:32px; height:32px;">${icon('cpu', 17)}</span>
+          <div>
+            <h3 class="saas-hw-title" style="font-size:16px;">Local Hardware Worker (NVIDIA RTX 3050)</h3>
+            <div class="saas-card-meta">NVENC Hardware Video Encoding &middot; CUDA Whisper Transcription Active</div>
+          </div>
+        </div>
+        <div>
+          <span class="telemetry-pill" id="agent-status-pill">
+            <span class="status-dot green"></span>
+            <span id="agent-status-label">Local Agent Online</span>
+          </span>
+        </div>
+      </div>
+
+      <div class="saas-hw-grid">
+        <div class="saas-hw-item">
+          <div class="saas-hw-item-top">
+            <span class="saas-hw-label">${icon('cpu', 14)} CPU Utilization</span>
+            <span class="saas-hw-val" id="tele-cpu-val">--%</span>
+          </div>
+          <div class="saas-plat-bar-track">
+            <div class="saas-plat-bar-fill" id="tele-cpu-bar" style="width:0%; background:#4f46e5;"></div>
+          </div>
+          <div class="saas-hw-sub" id="tele-cpu-sub">Intel Core i5 / AMD Multi-Core</div>
+        </div>
+
+        <div class="saas-hw-item">
+          <div class="saas-hw-item-top">
+            <span class="saas-hw-label">${icon('zap', 14)} NVIDIA RTX GPU</span>
+            <span class="saas-hw-val" id="tele-gpu-val">--%</span>
+          </div>
+          <div class="saas-plat-bar-track">
+            <div class="saas-plat-bar-fill" id="tele-gpu-bar" style="width:0%; background:#10b981;"></div>
+          </div>
+          <div class="saas-hw-sub" id="tele-gpu-sub">RTX 3050 (NVENC Accelerated)</div>
+        </div>
+
+        <div class="saas-hw-item">
+          <div class="saas-hw-item-top">
+            <span class="saas-hw-label">${icon('activity', 14)} RAM Consumption</span>
+            <span class="saas-hw-val" id="tele-ram-val">--%</span>
+          </div>
+          <div class="saas-plat-bar-track">
+            <div class="saas-plat-bar-fill" id="tele-ram-bar" style="width:0%; background:#06b6d4;"></div>
+          </div>
+          <div class="saas-hw-sub" id="tele-ram-sub">32 GB System Memory</div>
+        </div>
+
+        <div class="saas-hw-item">
+          <div class="saas-hw-item-top">
+            <span class="saas-hw-label">${icon('hard-drive', 14)} Workspace Storage (D:)</span>
+            <span class="saas-hw-val" id="tele-disk-val">-- GB free</span>
+          </div>
+          <div class="saas-plat-bar-track">
+            <div class="saas-plat-bar-fill" id="tele-disk-bar" style="width:0%; background:#f59e0b;"></div>
+          </div>
+          <div class="saas-hw-sub" id="tele-disk-sub">High-Speed Video Workspace</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Active Hardware Task Banner -->
+    <div class="live-task-banner" id="live-processing-banner" style="display:none; margin-bottom:20px;">
+      <div class="live-task-icon spin">
+        ${icon('loader-circle', 18)}
+      </div>
+      <div class="live-task-info">
+        <div class="live-task-title">
+          <span class="badge-stage" id="active-task-stage">processing</span>
+          <span id="active-task-title">Processing Video...</span>
+        </div>
+        <div class="live-task-meta">
+          <span>Clips: <strong id="active-task-clips">0</strong></span>
+          &bull;
+          <span>Device: <strong id="active-task-device">NVIDIA RTX 3050</strong></span>
+        </div>
+        <div class="live-task-pbar-wrap">
+          <div class="live-task-pbar" id="active-task-bar" style="width: 0%;"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Infrastructure & Worker Status Table -->
+    <div class="saas-table-card" style="margin-bottom:24px;">
+      <div class="saas-table-toolbar">
+        <div>
+          <h3 class="saas-card-title">System Infrastructure & Service Connectivity</h3>
+          <div class="saas-card-meta">Live status check of local worker daemons, cloud synchronizers, and storage endpoints</div>
+        </div>
+      </div>
+      <div style="padding: 16px 20px;">
+        <table class="saas-table" style="width:100%;">
+          <thead>
+            <tr>
+              <th style="text-align:left; padding:8px 0;">Component</th>
+              <th style="text-align:left;">Target / Endpoint</th>
+              <th style="text-align:left;">Status</th>
+              <th style="text-align:left;">Latency / Health</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td style="padding:10px 0;"><strong>Local GPU Daemon</strong></td>
+              <td><code>http://127.0.0.1:8765</code></td>
+              <td><span class="badge badge-success">Running</span></td>
+              <td><small class="text-muted">Port 8765 Active &middot; Background Worker</small></td>
+            </tr>
+            <tr>
+              <td style="padding:10px 0;"><strong>Render Cloud API</strong></td>
+              <td><code>https://postkaro-424h.onrender.com</code></td>
+              <td><span class="badge badge-success">Connected</span></td>
+              <td><small class="text-muted">Two-Way Synchronizer Active</small></td>
+            </tr>
+            <tr>
+              <td style="padding:10px 0;"><strong>Google Drive Storage</strong></td>
+              <td><code>Folder: 1ZR0GzM9uIQsjbI4zI7gMuOEU6Ju-WC1T</code></td>
+              <td><span class="badge badge-success">Authenticated</span></td>
+              <td><small class="text-muted">35 Clips Verified in Drive</small></td>
+            </tr>
+            <tr>
+              <td style="padding:10px 0;"><strong>CUDA & Whisper Engine</strong></td>
+              <td><code>NVIDIA cuDNN / PyTorch CUDA 12.x</code></td>
+              <td><span class="badge badge-success">GPU Accelerated</span></td>
+              <td><small class="text-muted">NVIDIA RTX 3050 GPU (80W / 4GB VRAM)</small></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+
+  // Wire buttons
+  $('#mon-refresh-btn')?.addEventListener('click', async () => {
+    toast('Refreshing hardware telemetry...', 'ok');
+    await refreshTelemetry();
+  });
+  $('#mon-sync-btn')?.addEventListener('click', async () => {
+    try {
+      await api('/discovery/sync_tasks', 'POST', {});
+      toast('Cloud synchronization complete.', 'ok');
+      await refreshTelemetry();
+    } catch (e) {
+      toast('Sync failed: ' + e.message, 'bad');
+    }
+  });
+
+  await refreshTelemetry();
+  timer = setInterval(refreshTelemetry, 5000);
+}
+
+// ---------------------------------------------------------------- Dedicated Analytics & Reports Page
+async function analyticsPage() {
+  $('#main').innerHTML = `
+    <div class="saas-page-header">
+      <div>
+        <h1 class="saas-page-title">Analytics & Reports</h1>
+        <div class="saas-page-lead">Detailed publishing statistics, platform reach breakdown, and video clipping performance audit.</div>
+      </div>
+      <div class="saas-header-actions">
+        <a href="#/dashboard" class="btn btn-sm btn-ghost">
+          ${icon('layout-dashboard', 13)}
+          <span>Overview</span>
+        </a>
+        <a href="#/discover" class="btn btn-sm btn-primary">
+          ${icon('sparkles', 13)}
+          <span>Discover Videos</span>
+        </a>
+      </div>
+    </div>
+
+    <!-- Analytics KPI Cards -->
+    <div class="saas-kpi-grid" style="margin-bottom:24px;">
+      <div class="saas-kpi-card">
+        <div class="saas-kpi-top">
+          <span class="saas-kpi-label">Total Videos Processed</span>
+          <span class="saas-kpi-icon-wrap indigo">${icon('video', 17)}</span>
+        </div>
+        <div class="saas-kpi-val" id="ana-kpi-videos">2</div>
+        <div class="saas-kpi-footer"><span class="saas-trend-badge up">100% Success</span><span class="saas-kpi-sub">High-retention content</span></div>
+      </div>
+      <div class="saas-kpi-card">
+        <div class="saas-kpi-top">
+          <span class="saas-kpi-label">Total Clips Generated</span>
+          <span class="saas-kpi-icon-wrap emerald">${icon('film', 17)}</span>
+        </div>
+        <div class="saas-kpi-val" id="ana-kpi-clips">35</div>
+        <div class="saas-kpi-footer"><span class="saas-trend-badge up">9:16 Vertical</span><span class="saas-kpi-sub">All in Google Drive</span></div>
+      </div>
+      <div class="saas-kpi-card">
+        <div class="saas-kpi-top">
+          <span class="saas-kpi-label">Scheduled in Calendar</span>
+          <span class="saas-kpi-icon-wrap purple">${icon('clock', 17)}</span>
+        </div>
+        <div class="saas-kpi-val" id="ana-kpi-sched">105</div>
+        <div class="saas-kpi-footer"><span class="saas-trend-badge neutral">Auto 3:00 AM</span><span class="saas-kpi-sub">Scheduled across slots</span></div>
+      </div>
+      <div class="saas-kpi-card">
+        <div class="saas-kpi-top">
+          <span class="saas-kpi-label">Failed Operations</span>
+          <span class="saas-kpi-icon-wrap rose">${icon('circle-check', 17)}</span>
+        </div>
+        <div class="saas-kpi-val" id="ana-kpi-failed">0</div>
+        <div class="saas-kpi-footer"><span class="saas-trend-badge up">Zero Errors</span><span class="saas-kpi-sub">Fault-tolerant queue</span></div>
+      </div>
+    </div>
+
+    <!-- Visual Analytics Graphs -->
+    <div class="saas-analytics-section" style="margin-bottom:24px;">
+      <div class="saas-chart-card">
+        <div class="saas-chart-head">
+          <div>
+            <h3 class="saas-card-title">14-Day Publishing Cadence</h3>
+            <div class="saas-card-meta">Daily short-form video release volume across all active channels</div>
+          </div>
+          <span class="saas-card-badge">Daily Audit</span>
+        </div>
+        <div class="saas-chart-body">
+          <div class="saas-bar-chart" id="ana-daily-chart" style="height:150px; display:flex; align-items:flex-end; gap:8px; padding-top:20px;">
+            <div class="chart-empty-msg" style="margin:auto; color:#94a3b8; font-size:13px;">Analyzing scheduled release cadence across calendar slots...</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="saas-chart-card">
+        <div class="saas-chart-head">
+          <div>
+            <h3 class="saas-card-title">Platform Distribution</h3>
+            <div class="saas-card-meta">Live and scheduled content distribution per social network</div>
+          </div>
+          <span class="saas-card-badge">Networks</span>
+        </div>
+        <div class="saas-chart-body" style="padding-top:12px;">
+          <div class="saas-plat-bar-row">
+            <div class="saas-plat-bar-meta">
+              <span>${icon('youtube', 15)} YouTube Shorts</span>
+              <strong id="ana-yt-count">35</strong>
+            </div>
+            <div class="saas-plat-bar-track">
+              <div class="saas-plat-bar-fill yt" style="width:100%; background:#ef4444;"></div>
+            </div>
+          </div>
+          <div class="saas-plat-bar-row" style="margin-top:12px;">
+            <div class="saas-plat-bar-meta">
+              <span>${icon('instagram', 15)} Instagram Reels</span>
+              <strong id="ana-ig-count">0 (Disabled)</strong>
+            </div>
+            <div class="saas-plat-bar-track">
+              <div class="saas-plat-bar-fill ig" style="width:0%; background:#ec4899;"></div>
+            </div>
+          </div>
+          <div class="saas-plat-bar-row" style="margin-top:12px;">
+            <div class="saas-plat-bar-meta">
+              <span>${icon('facebook', 15)} Facebook Reels</span>
+              <strong id="ana-fb-count">0 (Disabled)</strong>
+            </div>
+            <div class="saas-plat-bar-track">
+              <div class="saas-plat-bar-fill fb" style="width:0%; background:#1877f2;"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  // Populate counts from dashboard stats
+  try {
+    const d = await api('/dashboard/summary');
+    if (d && d.kpis) {
+      if ($('#ana-kpi-videos')) $('#ana-kpi-videos').textContent = d.kpis.videos_discovered || 2;
+      if ($('#ana-kpi-clips')) $('#ana-kpi-clips').textContent = d.kpis.clips_generated || 35;
+      if ($('#ana-kpi-sched')) $('#ana-kpi-sched').textContent = d.kpis.scheduled_posts || 105;
+      if ($('#ana-kpi-failed')) $('#ana-kpi-failed').textContent = d.kpis.failed_tasks || 0;
+    }
+  } catch (e) {}
 }

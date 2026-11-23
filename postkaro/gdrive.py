@@ -197,10 +197,12 @@ def sync_drive_to_batch():
         )
         next_no += 1
 
+        s = settings.load()
         for plat in ('youtube', 'instagram', 'facebook'):
+            plat_enabled = 1 if plat == 'youtube' else int(bool(s.get(f"{plat}_enabled", False)))
             db.run(
-                "INSERT INTO posts (clip_id, platform, title, body, state) VALUES (?, ?, ?, ?, 'draft')",
-                (clip_id, plat, title, f"{title}\n\n#Shorts #Viral #Gaming")
+                "INSERT INTO posts (clip_id, platform, enabled, title, body, state) VALUES (?, ?, ?, ?, ?, 'draft')",
+                (clip_id, plat, plat_enabled, title, f"{title}\n\n#Shorts #Viral #Gaming")
             )
         imported += 1
 
