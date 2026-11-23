@@ -20,6 +20,8 @@ DEFAULTS = {
     'youtube_full_video_line': True,  # add "Full video: <link>" to YouTube descriptions
     'late': 'ask',                   # Instagram when the laptop was off at posting time: ask / post
     'late_grace_min': 15,            # minutes late that still count as on time
+    'instagram_enabled': False,      # Disabled by default until credentials provided
+    'facebook_enabled': False,       # Disabled by default until credentials provided
 }
 
 

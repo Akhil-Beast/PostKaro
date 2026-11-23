@@ -1568,6 +1568,26 @@ async function dashboardPage() {
       </div>
     </div>
 
+    <!-- Multi-Platform Publishing Controls -->
+    <div class="saas-plat-controls-card">
+      <div class="saas-plat-controls-head">
+        <div>
+          <h3 class="saas-card-title">Platform Publishing Controls</h3>
+          <div class="saas-card-meta">Enable or disable automated short-form video publishing per platform. Instagram and Facebook require credentials before enabling.</div>
+        </div>
+        <div>
+          <button class="btn btn-sm btn-ghost" id="dash-manage-creds-btn">
+            ${icon('settings', 13)}
+            <span>Configure Credentials</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="saas-plat-controls-grid" id="dash-platform-controls-grid">
+        <div class="muted" style="padding:16px;">Loading platform controls...</div>
+      </div>
+    </div>
+
     <!-- Analytics & Visualization Section -->
     <div class="saas-analytics-grid">
       <!-- Daily Publishing Activity Chart -->
@@ -1708,6 +1728,7 @@ async function dashboardPage() {
   $('#filter-status').onchange = () => refreshDashboardTasks();
   $('#filter-refresh-btn').onclick = () => refreshDashboardTasks();
   $('#dash-refresh-btn').onclick = () => refreshDashboardAll();
+  const dashCredsBtn = $('#dash-manage-creds-btn'); if (dashCredsBtn) dashCredsBtn.onclick = () => openPlatformCredsModal();
   
   const syncBtn = $('#dash-cloud-sync-btn');
   if (syncBtn) {
@@ -1846,6 +1867,9 @@ async function refreshDashboardStats() {
     const sEl = $('#kpi-scheduled'); if (sEl) sEl.textContent = s.total_pending ?? s.clips_pending ?? 0;
     const prEl = $('#kpi-processing'); if (prEl) prEl.textContent = s.total_processing ?? s.clips_processing ?? 0;
     const fEl = $('#kpi-failed'); if (fEl) fEl.textContent = s.total_failed ?? s.failed_uploads ?? 0;
+
+    // Platform Publishing Controls
+    if (s.platform_controls) renderPlatformControls(s.platform_controls);
 
     // Daily Chart
     renderDailyChart(s.daily_uploads || []);
@@ -2067,3 +2091,285 @@ async function refreshDashboardTasks() {
   route();
   setInterval(() => loadState().catch(() => {}), 30000);
 })();
+
+
+function renderPlatformControls(controls) {
+  const grid = $('#dash-platform-controls-grid');
+  if (!grid || !controls) return;
+
+  const ig = controls.instagram || {enabled: false, credentials_valid: false};
+  const fb = controls.facebook || {enabled: false, credentials_valid: false};
+  const yt = controls.youtube || {enabled: true, credentials_valid: true};
+
+  const getStatusBadge = (platInfo) => {
+    if (platInfo.credentials_valid && platInfo.enabled) {
+      return `<span class="badge ok">${icon('circle-check', 13)}<span>Enabled</span></span>`;
+    }
+    if (platInfo.credentials_valid && !platInfo.enabled) {
+      return `<span class="badge neutral">${icon('minus-circle', 13)}<span>Disabled</span></span>`;
+    }
+    return `<span class="badge warn">${icon('lock', 12)}<span>Disabled &middot; Credentials Required</span></span>`;
+  };
+
+  const getStatusClass = (platInfo) => {
+    if (!platInfo.credentials_valid) return 'locked';
+    return platInfo.enabled ? 'enabled' : 'disabled';
+  };
+
+  grid.innerHTML = `
+    <!-- Instagram Reels Control Box -->
+    <div class="saas-plat-control-box ${getStatusClass(ig)}" id="plat-box-instagram">
+      <div class="saas-plat-box-head">
+        <div class="saas-plat-box-brand">
+          <div class="saas-plat-box-icon ig">
+            ${icon('instagram', 18)}
+          </div>
+          <div>
+            <h4 class="saas-plat-box-title">Instagram Reels</h4>
+            <div class="saas-plat-box-sub">Auto-publish 9:16 vertical shorts</div>
+          </div>
+        </div>
+        <div id="status-badge-ig">${getStatusBadge(ig)}</div>
+      </div>
+
+      <div class="saas-plat-box-body" id="meta-info-ig">
+        ${ig.credentials_valid
+          ? `<strong>Connected:</strong> ${esc(ig.account ? (ig.account.username || ig.account.name || '@connected') : 'Creator/Business Account')}`
+          : `<strong>Credentials Required:</strong> Instagram is disabled. Add your Meta App ID/Secret or Access Token to enable.`
+        }
+      </div>
+
+      <div class="saas-plat-box-foot">
+        <div class="saas-plat-toggle-wrap">
+          <label class="switch ${ig.credentials_valid ? '' : 'disabled'}" title="${ig.credentials_valid ? 'Toggle Instagram publishing' : 'Valid credentials required to enable Instagram'}">
+            <input type="checkbox" id="dash-toggle-ig" ${ig.enabled ? 'checked' : ''} ${ig.credentials_valid ? '' : 'disabled'}>
+            <span class="track"></span>
+          </label>
+          <span class="saas-plat-toggle-status" id="toggle-label-ig">${ig.enabled ? 'Enabled' : 'Disabled'}</span>
+        </div>
+
+        <div>
+          <button class="btn btn-sm btn-ghost dash-cred-btn" data-plat="instagram">
+            ${icon(ig.credentials_valid ? 'settings' : 'key', 12)}
+            <span>${ig.credentials_valid ? 'Manage' : 'Enter Credentials'}</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Facebook Reels Control Box -->
+    <div class="saas-plat-control-box ${getStatusClass(fb)}" id="plat-box-facebook">
+      <div class="saas-plat-box-head">
+        <div class="saas-plat-box-brand">
+          <div class="saas-plat-box-icon fb">
+            ${icon('facebook', 18)}
+          </div>
+          <div>
+            <h4 class="saas-plat-box-title">Facebook Reels</h4>
+            <div class="saas-plat-box-sub">Auto-publish to Facebook Pages</div>
+          </div>
+        </div>
+        <div id="status-badge-fb">${getStatusBadge(fb)}</div>
+      </div>
+
+      <div class="saas-plat-box-body" id="meta-info-fb">
+        ${fb.credentials_valid
+          ? `<strong>Connected:</strong> ${esc(fb.account ? (fb.account.name || 'Facebook Page') : 'Active Page')}`
+          : `<strong>Credentials Required:</strong> Facebook is disabled. Add your Meta App ID/Secret or Page Token to enable.`
+        }
+      </div>
+
+      <div class="saas-plat-box-foot">
+        <div class="saas-plat-toggle-wrap">
+          <label class="switch ${fb.credentials_valid ? '' : 'disabled'}" title="${fb.credentials_valid ? 'Toggle Facebook publishing' : 'Valid credentials required to enable Facebook'}">
+            <input type="checkbox" id="dash-toggle-fb" ${fb.enabled ? 'checked' : ''} ${fb.credentials_valid ? '' : 'disabled'}>
+            <span class="track"></span>
+          </label>
+          <span class="saas-plat-toggle-status" id="toggle-label-fb">${fb.enabled ? 'Enabled' : 'Disabled'}</span>
+        </div>
+
+        <div>
+          <button class="btn btn-sm btn-ghost dash-cred-btn" data-plat="facebook">
+            ${icon(fb.credentials_valid ? 'settings' : 'key', 12)}
+            <span>${fb.credentials_valid ? 'Manage' : 'Enter Credentials'}</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- YouTube Shorts (Reference / Connected) -->
+    <div class="saas-plat-control-box enabled" id="plat-box-youtube">
+      <div class="saas-plat-box-head">
+        <div class="saas-plat-box-brand">
+          <div class="saas-plat-box-icon yt">
+            ${icon('youtube', 18)}
+          </div>
+          <div>
+            <h4 class="saas-plat-box-title">YouTube Shorts</h4>
+            <div class="saas-plat-box-sub">Primary video automation channel</div>
+          </div>
+        </div>
+        <div>${getStatusBadge(yt)}</div>
+      </div>
+
+      <div class="saas-plat-box-body">
+        <strong>Connected Channel:</strong> ${esc(yt.account ? yt.account.name : 'ShadowStrike')}
+      </div>
+
+      <div class="saas-plat-box-foot">
+        <div class="saas-plat-toggle-wrap">
+          <label class="switch" title="YouTube Shorts is primary automation channel">
+            <input type="checkbox" checked disabled>
+            <span class="track"></span>
+          </label>
+          <span class="saas-plat-toggle-status">Enabled (Primary)</span>
+        </div>
+
+        <div>
+          <a href="#/accounts" class="btn btn-sm btn-ghost">
+            ${icon('settings', 12)}
+            <span>Settings</span>
+          </a>
+        </div>
+      </div>
+    </div>
+  `;
+
+  // Attach event handlers for toggling Instagram
+  const igToggle = $('#dash-toggle-ig');
+  if (igToggle) {
+    igToggle.onchange = async () => {
+      const willEnable = igToggle.checked;
+      try {
+        const res = await api('/platform/toggle', 'POST', {platform: 'instagram', enabled: willEnable});
+        toast(willEnable ? 'Instagram publishing enabled.' : 'Instagram publishing disabled.', 'ok');
+        renderPlatformControls(res);
+      } catch (e) {
+        igToggle.checked = !willEnable;
+        toast(e.message, 'bad');
+        if (!ig.credentials_valid) {
+          openPlatformCredsModal('instagram');
+        }
+      }
+    };
+  }
+
+  // Attach event handlers for toggling Facebook
+  const fbToggle = $('#dash-toggle-fb');
+  if (fbToggle) {
+    fbToggle.onchange = async () => {
+      const willEnable = fbToggle.checked;
+      try {
+        const res = await api('/platform/toggle', 'POST', {platform: 'facebook', enabled: willEnable});
+        toast(willEnable ? 'Facebook publishing enabled.' : 'Facebook publishing disabled.', 'ok');
+        renderPlatformControls(res);
+      } catch (e) {
+        fbToggle.checked = !willEnable;
+        toast(e.message, 'bad');
+        if (!fb.credentials_valid) {
+          openPlatformCredsModal('facebook');
+        }
+      }
+    };
+  }
+
+  // Attach modal triggers
+  $$('.dash-cred-btn').forEach(btn => {
+    btn.onclick = () => openPlatformCredsModal(btn.dataset.plat);
+  });
+}
+
+function openPlatformCredsModal(targetPlat) {
+  const m = $('#modal');
+  m.innerHTML = `
+    <div class="modal-head">
+      <div>
+        <h2 id="modal-title">Configure Meta Credentials (${targetPlat ? targetPlat.toUpperCase() : 'Instagram & Facebook'})</h2>
+        <p class="muted">Enter API credentials or access tokens to enable automated publishing from the dashboard.</p>
+      </div>
+      <button class="modal-close" data-close aria-label="Close">${icon('x', 18)}</button>
+    </div>
+    <div class="modal-body" style="padding: 16px 20px;">
+      <div style="margin-bottom:16px;">
+        <label class="field-label" style="display:block; margin-bottom:6px; font-weight:600;">Credential Type</label>
+        <div style="display:flex; gap:16px;">
+          <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
+            <input type="radio" name="cred-type" value="meta_app" checked>
+            <span>Meta App ID & Secret</span>
+          </label>
+          <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
+            <input type="radio" name="cred-type" value="direct_token">
+            <span>Direct Page / User Token</span>
+          </label>
+        </div>
+      </div>
+
+      <div id="cred-meta-app-fields">
+        <label class="field" style="margin-bottom:12px; display:block;">
+          <span class="field-label" style="font-weight:600;">Meta App ID</span>
+          <input id="modal-meta-id" class="input" placeholder="e.g. 123456789012345" style="width:100%; margin-top:4px;">
+        </label>
+        <label class="field" style="margin-bottom:12px; display:block;">
+          <span class="field-label" style="font-weight:600;">Meta App Secret</span>
+          <input id="modal-meta-secret" class="input" type="password" placeholder="e.g. abcd1234ef5678..." style="width:100%; margin-top:4px;">
+        </label>
+        <small class="muted" style="display:block; margin-bottom:16px;">From your Meta Developer Console &rarr; App settings &rarr; Basic.</small>
+      </div>
+
+      <div id="cred-token-fields" style="display:none;">
+        <label class="field" style="margin-bottom:12px; display:block;">
+          <span class="field-label" style="font-weight:600;">Platform Account / Page Name</span>
+          <input id="modal-token-name" class="input" placeholder="e.g. My Official Page or @InstagramUser" style="width:100%; margin-top:4px;">
+        </label>
+        <label class="field" style="margin-bottom:12px; display:block;">
+          <span class="field-label" style="font-weight:600;">Access Token</span>
+          <textarea id="modal-token-val" class="textarea" rows="3" placeholder="Paste Meta Page Access Token (EAAB...)" style="width:100%; margin-top:4px;"></textarea>
+        </label>
+      </div>
+    </div>
+    <div class="modal-foot" style="display:flex; justify-content:space-between; align-items:center; padding:14px 20px; border-top:1px solid #e2e8f0;">
+      <a href="#/accounts" class="link" style="font-size:13px;">Advanced OAuth Settings &rarr;</a>
+      <div style="display:flex; gap:10px;">
+        <button class="btn btn-ghost" data-close>Cancel</button>
+        <button class="btn btn-primary" id="modal-save-cred-btn">${icon('check', 14)}<span>Save & Verify</span></button>
+      </div>
+    </div>
+  `;
+  m.showModal();
+
+  $$('input[name="cred-type"]').forEach(r => {
+    r.onchange = () => {
+      const isApp = $('input[name="cred-type"]:checked').value === 'meta_app';
+      $('#cred-meta-app-fields').style.display = isApp ? 'block' : 'none';
+      $('#cred-token-fields').style.display = isApp ? 'none' : 'block';
+    };
+  });
+
+  $('#modal-save-cred-btn').onclick = async () => {
+    const isApp = $('input[name="cred-type"]:checked').value === 'meta_app';
+    const btn = $('#modal-save-cred-btn');
+    try {
+      await busy(btn, async () => {
+        if (isApp) {
+          const app_id = $('#modal-meta-id').value.trim();
+          const app_secret = $('#modal-meta-secret').value.trim();
+          if (!app_id || !app_secret) throw new Error('Please enter both Meta App ID and App Secret.');
+          const res = await api('/platform/credentials', 'POST', {platform: 'meta', app_id, app_secret});
+          renderPlatformControls(res);
+        } else {
+          const access_token = $('#modal-token-val').value.trim();
+          const name = $('#modal-token-name').value.trim();
+          if (!access_token) throw new Error('Please enter an Access Token.');
+          const res = await api('/platform/credentials', 'POST', {platform: targetPlat || 'meta', access_token, name});
+          renderPlatformControls(res);
+        }
+      });
+      toast('Credentials saved successfully! Platform controls unlocked.', 'ok');
+      m.close();
+      await loadState();
+      refreshDashboardStats();
+    } catch (e) {
+      toast(e.message, 'bad');
+    }
+  };
+}

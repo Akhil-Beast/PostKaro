@@ -134,8 +134,9 @@ def import_kit(path):
                 continue
             # a video the platform can't take (too long for a Facebook Reel) starts unticked; text can be fixed
             hard = rules.media_problems(plat, clip)
+            plat_enabled = bool(s.get(f"{plat}_enabled", True if plat == 'youtube' else False))
             db.run('INSERT INTO posts (clip_id, platform, enabled, title, body, state, updated) '
-                   'VALUES (?, ?, ?, ?, ?, "draft", ?)', (cid, plat, int(not hard), title, body, db.iso(db.now())))
+                   'VALUES (?, ?, ?, ?, ?, "draft", ?)', (cid, plat, int(not hard and plat_enabled), title, body, db.iso(db.now())))
     return bid
 
 

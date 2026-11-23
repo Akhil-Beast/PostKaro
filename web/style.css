@@ -2348,6 +2348,162 @@ body.saas-app {
   font-variant-numeric: tabular-nums;
 }
 
+/* Platform Publishing Controls Card on Dashboard */
+.saas-plat-controls-card {
+  background: #ffffff;
+  border: 1px solid var(--saas-border);
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+  margin-bottom: 24px;
+}
+
+.saas-plat-controls-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.saas-plat-controls-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 16px;
+}
+
+.saas-plat-control-box {
+  background: #f8fafc;
+  border: 1px solid var(--saas-border);
+  border-radius: 10px;
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 14px;
+  transition: all 0.15s ease;
+}
+
+.saas-plat-control-box:hover {
+  border-color: #cbd5e1;
+}
+
+.saas-plat-control-box.enabled {
+  border-left: 4px solid #10b981;
+  background: #ffffff;
+}
+
+.saas-plat-control-box.disabled {
+  border-left: 4px solid #94a3b8;
+}
+
+.saas-plat-control-box.locked {
+  border-left: 4px solid #f59e0b;
+}
+
+.saas-plat-box-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.saas-plat-box-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.saas-plat-box-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.saas-plat-box-icon.ig {
+  background: linear-gradient(45deg, #f09433 0%, #e6683c 25%, #dc2743 50%, #cc2366 75%, #bc1888 100%);
+  color: #ffffff;
+}
+
+.saas-plat-box-icon.fb {
+  background: #1877f2;
+  color: #ffffff;
+}
+
+.saas-plat-box-icon.yt {
+  background: #ff0000;
+  color: #ffffff;
+}
+
+.saas-plat-box-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #0f172a;
+  margin: 0;
+}
+
+.saas-plat-box-sub {
+  font-size: 12px;
+  color: #64748b;
+  margin-top: 2px;
+}
+
+.saas-plat-box-body {
+  font-size: 12px;
+  color: #475569;
+  line-height: 1.45;
+  background: #ffffff;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+}
+
+.saas-plat-control-box.enabled .saas-plat-box-body {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+  color: #166534;
+}
+
+.saas-plat-control-box.locked .saas-plat-box-body {
+  background: #fffbeb;
+  border-color: #fef3c7;
+  color: #92400e;
+}
+
+.saas-plat-box-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 6px;
+  border-top: 1px solid #f1f5f9;
+}
+
+.saas-plat-toggle-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.saas-plat-toggle-status {
+  font-size: 13px;
+  font-weight: 600;
+  color: #334155;
+}
+
+.saas-plat-control-box.enabled .saas-plat-toggle-status {
+  color: #059669;
+}
+
+.saas-plat-control-box.locked .saas-plat-toggle-status {
+  color: #d97706;
+}
+
 /* Table Card & Toolbar */
 .saas-table-card {
   background: #ffffff;

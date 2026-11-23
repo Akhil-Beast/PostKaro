@@ -177,7 +177,8 @@ def account_view(a):
 def state(request, body):
     s = settings.load()
     return {'version': __version__, 'settings': s, 'accounts': [account_view(a) for a in db.accounts()],
-            'apps': {'google': vault.get('app:google') is not None, 'meta': vault.get('app:meta') is not None},
+            'apps': {'google': vault.get('app:google') is not None, 'meta': safe_vault_get('app:meta') is not None},
+            'platform_controls': get_platform_statuses(),
             'vault': vault.status(), 'now': settings.to_local(db.now(), s), 'base': paths.base_url(),
             'redirects': {'google': redirect('google'), 'meta': redirect('meta')},
             'counts': {r['state']: r['n'] for r in db.rows('SELECT state, COUNT(*) n FROM posts GROUP BY state')}}
@@ -753,6 +754,169 @@ def discovery_tasks(request, body):
     return {'tasks': tasks}
 
 
+
+def safe_vault_get(name):
+    try:
+        return vault.get(name)
+    except Exception:
+        return None
+
+
+def platform_credential_status(platform):
+    """
+    Checks if valid login credentials or API credentials exist for a platform.
+    Returns: {'valid': bool, 'account': dict or None, 'reason': str}
+    """
+    if platform == 'youtube':
+        a = db.active_account('youtube')
+        has_cred = bool(a and a.get('status') == 'ok')
+        return {
+            'valid': has_cred,
+            'account': {'name': a['name'], 'id': a['account_id']} if a else None,
+            'reason': 'Connected' if has_cred else 'No YouTube channel connected'
+        }
+
+    if platform == 'facebook':
+        a = db.active_account('facebook')
+        if not a or a.get('status') != 'ok':
+            all_fb = [x for x in db.accounts('facebook') if x.get('status') == 'ok']
+            a = all_fb[0] if all_fb else None
+        has_token = False
+        if a:
+            tok = safe_vault_get(f"facebook:{a['account_id']}")
+            has_token = bool(tok and (tok.get('token') if isinstance(tok, dict) else tok))
+        meta_app = safe_vault_get('app:meta')
+        is_valid = bool(a and has_token) or bool(meta_app and meta_app.get('app_id') and meta_app.get('app_secret') and a)
+        return {
+            'valid': is_valid,
+            'account': {'name': a['name'], 'id': a['account_id']} if a else None,
+            'reason': 'Connected' if is_valid else ('Meta login / Page access token missing' if meta_app else 'Credentials not configured (Meta App ID/Secret or Page Token missing)')
+        }
+
+    if platform == 'instagram':
+        a = db.active_account('instagram')
+        if not a or a.get('status') != 'ok':
+            all_ig = [x for x in db.accounts('instagram') if x.get('status') == 'ok']
+            a = all_ig[0] if all_ig else None
+        has_token = False
+        if a:
+            uid = a.get('extra', {}).get('meta_user')
+            page_id = a.get('extra', {}).get('page_id')
+            user_tok = safe_vault_get(f"meta-user:{uid}") if uid else None
+            page_tok = safe_vault_get(f"facebook:{page_id}") if page_id else None
+            has_token = bool(user_tok or page_tok)
+        meta_app = safe_vault_get('app:meta')
+        is_valid = bool(a and has_token) or bool(meta_app and meta_app.get('app_id') and meta_app.get('app_secret') and a)
+        return {
+            'valid': is_valid,
+            'account': {'name': a['name'], 'id': a['account_id']} if a else None,
+            'reason': 'Connected' if is_valid else ('Instagram Professional account link missing' if meta_app else 'Credentials not configured (Meta App ID/Secret or Account missing)')
+        }
+
+    return {'valid': False, 'account': None, 'reason': 'Unknown platform'}
+
+
+def get_platform_statuses():
+    s = settings.load()
+    ig = platform_credential_status('instagram')
+    fb = platform_credential_status('facebook')
+    yt = platform_credential_status('youtube')
+
+    # Enforce: If credentials are not provided or invalid, the platform MUST remain disabled
+    updated = False
+    if not ig['valid'] and s.get('instagram_enabled'):
+        s['instagram_enabled'] = False
+        updated = True
+    if not fb['valid'] and s.get('facebook_enabled'):
+        s['facebook_enabled'] = False
+        updated = True
+    if updated:
+        settings.save(s)
+
+    return {
+        'instagram': {
+            'enabled': bool(s.get('instagram_enabled', False)),
+            'credentials_valid': ig['valid'],
+            'account': ig['account'],
+            'reason': ig['reason']
+        },
+        'facebook': {
+            'enabled': bool(s.get('facebook_enabled', False)),
+            'credentials_valid': fb['valid'],
+            'account': fb['account'],
+            'reason': fb['reason']
+        },
+        'youtube': {
+            'enabled': True,
+            'credentials_valid': yt['valid'],
+            'account': yt['account'],
+            'reason': yt['reason']
+        }
+    }
+
+
+def platform_status(request, body):
+    return get_platform_statuses()
+
+
+def toggle_platform(request, body):
+    platform = body.get('platform')
+    enable = bool(body.get('enabled'))
+    if platform not in ('instagram', 'facebook'):
+        raise ApiError('Platform must be "instagram" or "facebook"', 400)
+
+    cred = platform_credential_status(platform)
+    if enable and not cred['valid']:
+        raise ApiError(f'Cannot enable {platform.title()}: valid login credentials or API credentials must be configured first.', 400)
+
+    s = settings.load()
+    s[f'{platform}_enabled'] = enable
+    settings.save(s)
+
+    # Immediately update draft posts for this platform to match the toggle
+    db.run("UPDATE posts SET enabled=? WHERE platform=? AND state='draft'", (int(enable), platform))
+
+    return get_platform_statuses()
+
+
+def save_platform_credentials(request, body):
+    import time
+    platform = body.get('platform') or 'meta'
+    app_id = (body.get('app_id') or '').strip()
+    app_secret = (body.get('app_secret') or '').strip()
+    token = (body.get('access_token') or '').strip()
+    account_id = (body.get('account_id') or body.get('page_id') or '').strip()
+    name = (body.get('name') or '').strip()
+
+    if not (app_id and app_secret) and not token:
+        raise ApiError('Please provide Meta App ID & App Secret or an Access Token.', 400)
+
+    if app_id and app_secret:
+        vault.put('app:meta', {'app_id': app_id, 'app_secret': app_secret})
+
+    if token:
+        if not account_id or not name:
+            try:
+                import urllib.request
+                req = urllib.request.Request(f"https://graph.facebook.com/v19.0/me?fields=id,name&access_token={token}")
+                with urllib.request.urlopen(req, timeout=6) as resp:
+                    data = json.loads(resp.read().decode('utf-8'))
+                    account_id = account_id or data.get('id', '')
+                    name = name or data.get('name', 'Meta Account')
+            except Exception:
+                account_id = account_id or f"meta_{int(time.time())}"
+                name = name or f"{platform.title()} Account"
+
+        if platform in ('facebook', 'meta'):
+            vault.put(f"facebook:{account_id}", {'token': token})
+            db.save_account('facebook', account_id, name, extra={}, active=True)
+
+        if platform in ('instagram', 'meta'):
+            vault.put(f"meta-user:{account_id}", {'token': token})
+            db.save_account('instagram', account_id, name, extra={'username': name, 'page_id': account_id, 'meta_user': account_id}, active=True)
+
+    return get_platform_statuses()
+
 def dashboard_stats(request, body):
     from . import dashboard
     stats = dashboard.get_stats()
@@ -761,7 +925,8 @@ def dashboard_stats(request, body):
         stats.update({
             'daily_uploads': charts.get('daily', []),
             'platforms': charts.get('platforms', {}),
-            'status_breakdown': charts.get('status_breakdown', {})
+            'status_breakdown': charts.get('status_breakdown', {}),
+            'platform_controls': get_platform_statuses()
         })
     except Exception:
         pass
@@ -890,6 +1055,9 @@ def routes():
         R('/api/dashboard/charts', api(dashboard_charts)),
         R('/api/dashboard/tasks', api(dashboard_tasks)),
         R('/api/dashboard/live', api(dashboard_live)),
+        R('/api/platform/status', api(platform_status)),
+        R('/api/platform/toggle', api(toggle_platform), methods=['POST']),
+        R('/api/platform/credentials', api(save_platform_credentials), methods=['POST']),
         R('/api/pipeline/{action}', api(pipeline_action), methods=['POST']),
         R('/api/hardware', api(hardware_status)),
         R('/api/gdrive/clips', api(gdrive_clips)),
