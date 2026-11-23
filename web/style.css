@@ -2504,4 +2504,72 @@ body.saas-app {
   .saas-kpi-grid {
     grid-template-columns: repeat(2, 1fr);
   }
+  .saas-topbar {
+    padding: 0 12px;
+    height: 56px;
+    gap: 8px;
+  }
+  .topbar-left {
+    gap: 8px;
+    min-width: 0;
+    flex: 1 1 auto;
+    overflow: hidden;
+  }
+  .breadcrumb {
+    font-size: 13px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .bc-root, .bc-sep {
+    display: none;
+  }
+  .bc-current {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 140px;
+    display: inline-block;
+    vertical-align: middle;
+  }
+  .topbar-right {
+    gap: 6px;
+    flex-shrink: 0;
+  }
+  .topbar-agent-pill {
+    padding: 5px 8px;
+    font-size: 11px;
+    gap: 4px;
+  }
+  .topbar-agent-pill .agent-pill-text {
+    display: none;
+  }
+  .header-cta-btn {
+    padding: 6px 9px;
+  }
+  .header-cta-btn span {
+    display: none;
+  }
+  .topbar-avatar {
+    width: 32px;
+    height: 32px;
+    font-size: 11px;
+  }
+}
+
+@media (max-width: 480px) {
+  .bc-current {
+    max-width: 110px;
+    font-size: 12px;
+  }
+  .icon-btn-round {
+    width: 30px;
+    height: 30px;
+  }
+  .topbar-right {
+    gap: 4px;
+  }
+  .saas-kpi-grid {
+    grid-template-columns: 1fr;
+  }
 }

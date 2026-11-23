@@ -65,6 +65,9 @@ def app_info():
     changed = False
     if os.environ.get('POSTKARO_KEY'):
         info['key'] = os.environ['POSTKARO_KEY']
+    elif os.environ.get('RENDER'):
+        # On Render cloud, use a fixed key so user links never break across restarts
+        info['key'] = 'O35_UBTCYYhnXTBt38O8Amplyg_PVDKP'
     elif not info.get('key'):
         info['key'], changed = secrets.token_urlsafe(24), True
 

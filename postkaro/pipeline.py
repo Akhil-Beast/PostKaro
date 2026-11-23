@@ -115,10 +115,10 @@ def notify_cloud_task(task_id, **kwargs):
 
 
 def sync_cloud_tasks():
-    """Polls Cloud Render for queued tasks and pulls them into the local queue."""
+    """Two-way sync: Pushes all local video tasks to Cloud Render, and pulls any new cloud-queued tasks."""
     global _LAST_CLOUD_SYNC
     now = time.time()
-    if now - _LAST_CLOUD_SYNC < 25.0:
+    if now - _LAST_CLOUD_SYNC < 10.0:
         return
     _LAST_CLOUD_SYNC = now
 
@@ -127,33 +127,44 @@ def sync_cloud_tasks():
 
     try:
         import urllib.request
-        url = f"{CLOUD_BASE_URL}/api/discovery/tasks?k={CLOUD_API_KEY}"
-        req = urllib.request.Request(url, headers={'User-Agent': 'PostKaro-LocalAgent/1.0'})
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        local_tasks = db.list_video_tasks(limit=100)
+        url = f"{CLOUD_BASE_URL}/api/discovery/sync_tasks?k={CLOUD_API_KEY}"
+        payload = json.dumps({'tasks': local_tasks}).encode('utf-8')
+        req = urllib.request.Request(
+            url,
+            data=payload,
+            headers={
+                'Content-Type': 'application/json',
+                'User-Agent': 'PostKaro-LocalAgent/1.0',
+                'x-postkaro': CLOUD_API_KEY,
+                'Origin': CLOUD_BASE_URL
+            },
+            method='POST'
+        )
+        with urllib.request.urlopen(req, timeout=12) as resp:
             data = json.loads(resp.read().decode('utf-8'))
 
-        cloud_tasks = data.get('tasks', [])
-        for ct in cloud_tasks:
-            if ct.get('stage') == 'queued':
-                existing = db.one("SELECT id, stage FROM video_tasks WHERE task_id=? OR (url=? AND url IS NOT NULL)",
-                                  (ct.get('task_id'), ct.get('url')))
-                if not existing:
-                    db.add_video_task({
-                        'task_id': ct.get('task_id'),
-                        'source_type': ct.get('source_type', 'youtube'),
-                        'topic': ct.get('topic', 'General'),
-                        'url': ct.get('url'),
-                        'video_id': ct.get('video_id'),
-                        'title': ct.get('title'),
-                        'thumbnail': ct.get('thumbnail'),
-                        'channel': ct.get('channel'),
-                        'views': ct.get('views', 0),
-                        'duration': ct.get('duration', 0),
-                        'reason': ct.get('reason'),
-                        'score': ct.get('score', 8.5),
-                        'stage': 'queued'
-                    })
-                    print(f"[Pipeline Sync] Pulled queued cloud task: {ct.get('title')}")
+        cloud_queued = data.get('cloud_queued', [])
+        for ct in cloud_queued:
+            existing = db.one("SELECT id, stage FROM video_tasks WHERE task_id=? OR (url=? AND url IS NOT NULL)",
+                              (ct.get('task_id'), ct.get('url')))
+            if not existing:
+                db.add_video_task({
+                    'task_id': ct.get('task_id'),
+                    'source_type': ct.get('source_type', 'youtube'),
+                    'topic': ct.get('topic', 'General'),
+                    'url': ct.get('url'),
+                    'video_id': ct.get('video_id'),
+                    'title': ct.get('title'),
+                    'thumbnail': ct.get('thumbnail'),
+                    'channel': ct.get('channel'),
+                    'views': ct.get('views', 0),
+                    'duration': ct.get('duration', 0),
+                    'reason': ct.get('reason'),
+                    'score': ct.get('score', 8.5),
+                    'stage': 'queued'
+                })
+                print(f"[Pipeline Sync] Pulled queued cloud task: {ct.get('title')}")
     except Exception as e:
         pass
 

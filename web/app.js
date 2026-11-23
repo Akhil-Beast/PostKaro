@@ -250,15 +250,15 @@ async function route() {
       if (a.dataset.nav === nav) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
     });
     const pageTitles = {
-      dashboard: 'Dashboard / Overview',
+      dashboard: 'Dashboard',
       analytics: 'Analytics & Reports',
-      monitor: 'System & Hardware Monitor',
-      post: 'Post Karo / Library',
-      discover: 'Video Discovery / AI Trends',
-      queue: 'Processing Queue / Active Tasks',
-      scheduled: 'Scheduled Posts / Calendar',
-      posted: 'Published Posts / Audit History',
-      accounts: 'Settings / Connected Platforms'
+      monitor: 'System Monitor',
+      post: 'Post Karo',
+      discover: 'Video Discovery',
+      queue: 'Processing Queue',
+      scheduled: 'Scheduled Posts',
+      posted: 'Published Posts',
+      accounts: 'Settings'
     };
     const bc = $('#bc-current-page');
     if (bc) bc.textContent = pageTitles[nav] || 'Dashboard';
@@ -733,27 +733,143 @@ function pvShow() {
 // ---------------------------------------------------------------- Queue
 
 async function queuePage() {
-  const list = await api('/queue');
+  const [tasksRes, list] = await Promise.all([
+    api('/discovery/tasks').catch(() => ({tasks: []})),
+    api('/queue').catch(() => [])
+  ]);
+  const tasks = (tasksRes && tasksRes.tasks) || [];
   const groups = [];
-  for (const p of list) {
+  for (const p of (list || [])) {
     const d = p.when ? dayLabel(p.when) : 'Now';
     if (!groups.length || groups[groups.length - 1].d !== d) groups.push({d, items: []});
     groups[groups.length - 1].items.push(p);
   }
+
+  const statusBadges = {
+    queued: '<span class="badge info">' + icon('clock', 13) + '<span>Queued</span></span>',
+    pending: '<span class="badge info">' + icon('clock', 13) + '<span>Waiting for PC</span></span>',
+    downloading: '<span class="badge info">' + icon('loader-circle', 13, 'spin') + '<span>Downloading</span></span>',
+    transcribing: '<span class="badge info">' + icon('loader-circle', 13, 'spin') + '<span>Transcribing</span></span>',
+    picking_moments: '<span class="badge info">' + icon('wand-sparkles', 13) + '<span>Picking Moments</span></span>',
+    rendering: '<span class="badge info">' + icon('loader-circle', 13, 'spin') + '<span>Rendering</span></span>',
+    processing: '<span class="badge info">' + icon('loader-circle', 13, 'spin') + '<span>Processing</span></span>',
+    completed: '<span class="badge ok">' + icon('circle-check', 13) + '<span>Completed</span></span>',
+    failed: '<span class="badge bad">' + icon('circle-x', 13) + '<span>Failed</span></span>',
+    paused: '<span class="badge warn">' + icon('circle-alert', 13) + '<span>Paused</span></span>'
+  };
+
+  const tasksHtml = tasks.length ? `
+    <div class="saas-card" style="margin-bottom:24px;">
+      <div class="saas-card-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+        <div>
+          <h3 class="saas-card-title">Video Clipping & Hardware Processing Queue</h3>
+          <p class="saas-card-subtitle">AI-assisted viral clipping pipeline running on local NVIDIA GPU accelerator.</p>
+        </div>
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span class="badge info">${icon('server', 13)}<span>GPU NVENC Worker Active</span></span>
+          <a href="#/discover" class="btn btn-sm btn-ghost">${icon('sparkles', 12)}<span>Discover More</span></a>
+        </div>
+      </div>
+      <div class="task-table-wrap">
+        <table class="task-table">
+          <thead>
+            <tr>
+              <th style="min-width:260px;">Video</th>
+              <th>Topic</th>
+              <th>Status</th>
+              <th>Stage</th>
+              <th style="min-width:140px;">Progress</th>
+              <th>Clips</th>
+              <th>Hardware</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${tasks.map(t => {
+              const pct = Math.round((t.progress || 0) * (t.progress <= 1.0 ? 100 : 1));
+              const status = t.stage === 'completed' ? 'completed' : (t.status || t.stage || 'queued');
+              const thumbUrl = t.thumbnail || (t.video_id ? `https://i.ytimg.com/vi/${t.video_id}/hqdefault.jpg` : '');
+              return `
+                <tr>
+                  <td class="task-cell-video">
+                    <div style="display:flex; align-items:center; gap:0.75rem;">
+                      ${thumbUrl ? `<img src="${esc(thumbUrl)}" class="task-thumb" alt="" loading="lazy">` : '<div class="task-thumb"></div>'}
+                      <div style="min-width:0; flex:1;">
+                        <div class="task-video-title" title="${esc(t.title || t.video_id)}">${esc(t.title || t.video_id)}</div>
+                        <small class="muted" style="display:block; margin-top:2px;">${esc(t.channel || t.video_id)}</small>
+                      </div>
+                    </div>
+                  </td>
+                  <td><span class="chip">${esc(t.topic || 'General')}</span></td>
+                  <td>${statusBadges[status] || `<span class="badge">${esc(status)}</span>`}</td>
+                  <td><code>${esc(t.stage || 'queued')}</code></td>
+                  <td>
+                    <div style="display:flex; align-items:center; gap:6px;">
+                      <div class="pbar-track" style="flex:1; height:6px; background:#e2e8f0; border-radius:999px; overflow:hidden;">
+                        <div class="pbar-fill" style="width:${pct}%; height:100%; background:${status==='completed'?'#10b981':'#6366f1'}; border-radius:999px; transition:width 0.3s ease;"></div>
+                      </div>
+                      <span class="num" style="font-size:11px; font-weight:600;">${pct}%</span>
+                    </div>
+                  </td>
+                  <td><b class="num">${t.clips_count || t.clips_created || 0}</b></td>
+                  <td><small class="muted">${esc(t.device || 'NVIDIA RTX 3050')}</small></td>
+                  <td>
+                    ${t.stage === 'completed' ? `<a href="#/" class="btn btn-sm btn-ghost">${icon('sparkles', 12)}<span>View Clips</span></a>` : ''}
+                    ${t.status === 'failed' || status === 'failed' ? `<button class="btn btn-sm btn-primary" data-task-act="retry" data-tid="${t.task_id}">${icon('rotate-ccw', 12)}<span>Retry</span></button>` : ''}
+                  </td>
+                </tr>
+              `;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  ` : `
+    <div class="saas-card" style="margin-bottom:24px;">
+      <div class="saas-empty-state">
+        <div class="saas-empty-icon">${icon('loader-circle', 24)}</div>
+        <div class="saas-empty-title">No Videos in Processing Queue</div>
+        <div class="saas-empty-desc">There are no video clipping jobs currently running or queued. Search and discover viral moments to start clipping.</div>
+        <a href="#/discover" class="btn btn-primary">${icon('sparkles', 14)}<span>Discover Videos to Clip</span></a>
+      </div>
+    </div>
+  `;
+
+  const scheduledHtml = `
+    <div class="saas-card">
+      <div class="saas-card-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+        <div>
+          <h3 class="saas-card-title">Scheduled Social Media Posts</h3>
+          <p class="saas-card-subtitle">Posts waiting for their scheduled time. YouTube and Facebook go live automatically.</p>
+        </div>
+      </div>
+      ${groups.length ? `<div class="board">${QHEAD}${groups.map(g => `<section class="board-day"><h2 class="board-date">${esc(g.d)}</h2>
+        <div class="list">${g.items.map(p => qRow(p, p.when ? p.when.slice(11, 16) : 'Now')).join('')}</div></section>`).join('')}</div>`
+        : `<div class="saas-empty-state" style="padding:32px 16px;">
+            <div class="saas-empty-icon">${icon('clock', 22)}</div>
+            <div class="saas-empty-title">No Posts Waiting to Publish</div>
+            <div class="saas-empty-desc">When clips are generated, schedule them from Post Karo to publish automatically.</div>
+            <a class="btn btn-ghost" href="#/">${icon('arrow-left', 14)}<span>Go to Post Karo</span></a>
+          </div>`}
+    </div>
+  `;
+
   $('#main').innerHTML = `
-    <div class="page-head"><div><h1>Queue</h1>
-      <p class="lead">Posts waiting for their time. YouTube and Facebook go live by themselves; Instagram needs this
-        computer on at its time.</p></div></div>
-    ${groups.length ? `<div class="board">${QHEAD}${groups.map(g => `<section class="board-day"><h2 class="board-date">${esc(g.d)}</h2>
-      <div class="list">${g.items.map(p => qRow(p, p.when ? p.when.slice(11, 16) : 'Now')).join('')}</div></section>`).join('')}</div>`
-      : `<div class="empty"><h2>Nothing waiting</h2>
-          <p>Scheduled posts show up here until they go live.</p>
-          <a class="btn" href="#/">${icon('arrow-left', 14)}Go to Post</a></div>`}`;
+    <div class="saas-page-header">
+      <div>
+        <h1 class="saas-page-title">Processing & Publishing Queue</h1>
+        <p class="saas-page-subtitle">Unified queue for AI video clipping pipeline, GPU hardware rendering, and scheduled social media posts.</p>
+      </div>
+    </div>
+    ${tasksHtml}
+    ${scheduledHtml}
+  `;
+
   timer = setInterval(async () => {
-    if (location.hash === '#/queue' && !$('#modal').open && !$('#main').contains(document.activeElement)) {
-      await loadState(); queuePage();
+    if (['#/queue', '#/scheduled'].includes(location.hash) && !$('#modal').open && !$('#main').contains(document.activeElement)) {
+      await queuePage();
     }
-  }, 8000);
+  }, 5000);
 }
 
 const QHEAD = '<div class="q-row qhead" aria-hidden="true"><span class="time">Time</span><span class="thumb-col"></span>' +
