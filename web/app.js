@@ -1761,10 +1761,10 @@ async function dashboardPage() {
   // Load telemetry, stats, and tasks
   await refreshDashboardAll();
 
-  // Fast interval polling for telemetry & active task
+  // Throttled interval polling for telemetry & active task
   timer = setInterval(() => {
-    refreshDashboardTelemetry().catch(() => {});
-  }, 3000);
+    if (!document.hidden) refreshDashboardTelemetry().catch(() => {});
+  }, 8000);
 }
 
 async function refreshDashboardAll() {
@@ -2566,7 +2566,9 @@ async function statusMonitorPage() {
   });
 
   await refreshDashboardTelemetry();
-  timer = setInterval(refreshDashboardTelemetry, 5000);
+  timer = setInterval(() => {
+    if (!document.hidden) refreshDashboardTelemetry().catch(() => {});
+  }, 10000);
 }
 
 // ---------------------------------------------------------------- Dedicated Analytics & Reports Page

@@ -61,6 +61,9 @@ def get_cpu_info():
 
 def get_gpu_info():
     global _STATIC_GPU
+    if _STATIC_GPU is not None and not _STATIC_GPU.get('available'):
+        return _STATIC_GPU
+
     gpu = {
         'name': 'No dedicated GPU detected',
         'available': False,
@@ -93,6 +96,8 @@ def get_gpu_info():
     except Exception:
         pass
 
+    if not gpu['available']:
+        _STATIC_GPU = gpu
     return gpu
 
 

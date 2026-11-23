@@ -156,7 +156,10 @@ def clip_view(c):
 
 
 def cover_url(c):
-    return f"/media/cover/{c['id']}?v={c['cover_v']}" if c.get('cover') and Path(c['cover']).exists() else None
+    cov = str(c.get('cover') or '')
+    if cov.startswith(('http://', 'https://')):
+        return cov
+    return f"/media/cover/{c['id']}?v={c['cover_v']}" if cov and Path(cov).exists() else None
 
 
 def batch_view(bid):
@@ -632,17 +635,14 @@ def make_thumb(cid):
     """A still frame for the video player (made once with ffmpeg, kept in the data folder)."""
     import shutil
     import subprocess
-    c = db.one('SELECT file FROM clips WHERE id=?', (cid,))
+    c = db.one('SELECT cover, file FROM clips WHERE id=?', (cid,))
     if not c:
+        return None
+    if c.get('cover') and str(c['cover']).startswith(('http://', 'https://')):
         return None
     f = Path(c['file'])
     if not f.exists():
-        from . import gdrive
-        dl = gdrive.ensure_local_file(c['file'])
-        if dl:
-            f = Path(dl)
-        else:
-            return None
+        return None
     if not shutil.which('ffmpeg'):
         return None
     out = paths.data_dir() / 'thumbs' / f'{cid}-{int(f.stat().st_mtime)}.jpg'
@@ -656,7 +656,11 @@ def make_thumb(cid):
 async def thumb(request: Request):
     if not host_ok(request) or not authed(request):
         return Response('no', 403)
-    out = await run_in_threadpool(make_thumb, int(request.path_params['id']))
+    cid = int(request.path_params['id'])
+    c = db.one('SELECT cover FROM clips WHERE id=?', (cid,))
+    if c and c.get('cover') and str(c['cover']).startswith(('http://', 'https://')):
+        return RedirectResponse(c['cover'], status_code=307)
+    out = await run_in_threadpool(make_thumb, cid)
     if not out:
         return Response('no still frame', 404)
     return FileResponse(out, media_type='image/jpeg', headers={'Cache-Control': 'max-age=86400'})

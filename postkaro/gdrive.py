@@ -186,14 +186,20 @@ def sync_drive_to_batch():
         raw_name = c['name'].rsplit('.', 1)[0].replace('_', ' ').replace('-', ' ')
         title = raw_name.title()
 
+        thumb = c.get('thumbnailLink')
+        if thumb:
+            thumb = thumb.replace('=s220', '=s720')
+            db.run("UPDATE clips SET cover=?, cover_kind='gdrive' WHERE (file=? OR file LIKE ?) AND (cover IS NULL OR cover='')",
+                   (thumb, ref, f"%{c['name']}"))
+
         if ref in existing_files or title in existing_titles or c['name'] in existing_files:
             continue
 
         size = int(c.get('size', 0))
         clip_id = db.run(
-            "INSERT INTO clips (batch_id, no, file, duration, size, score, title, caption) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (batch_id, next_no, ref, 30.0, size, 8.5, title, f"{title} #Shorts #Reels")
+            "INSERT INTO clips (batch_id, no, file, duration, size, score, title, caption, cover, cover_kind) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (batch_id, next_no, ref, 30.0, size, 8.5, title, f"{title} #Shorts #Reels", thumb, 'gdrive' if thumb else None)
         )
         next_no += 1
 
