@@ -13,7 +13,7 @@ from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 
-from . import db, paths, vault
+from . import db, paths, settings, vault
 
 SCOPES = ['https://www.googleapis.com/auth/drive.file']
 DEFAULT_FOLDER_ID = '1ZR0GzM9uIQsjbI4zI7gMuOEU6Ju-WC1T'
