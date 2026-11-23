@@ -2553,20 +2553,20 @@ async function statusMonitorPage() {
   // Wire buttons
   $('#mon-refresh-btn')?.addEventListener('click', async () => {
     toast('Refreshing hardware telemetry...', 'ok');
-    await refreshTelemetry();
+    await refreshDashboardTelemetry();
   });
   $('#mon-sync-btn')?.addEventListener('click', async () => {
     try {
       await api('/discovery/sync_tasks', 'POST', {});
       toast('Cloud synchronization complete.', 'ok');
-      await refreshTelemetry();
+      await refreshDashboardTelemetry();
     } catch (e) {
       toast('Sync failed: ' + e.message, 'bad');
     }
   });
 
-  await refreshTelemetry();
-  timer = setInterval(refreshTelemetry, 5000);
+  await refreshDashboardTelemetry();
+  timer = setInterval(refreshDashboardTelemetry, 5000);
 }
 
 // ---------------------------------------------------------------- Dedicated Analytics & Reports Page
