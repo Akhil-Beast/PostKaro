@@ -2664,66 +2664,108 @@ body.saas-app {
     padding: 0 12px;
     height: 56px;
     gap: 8px;
+    overflow: hidden;
+    flex-wrap: nowrap;
   }
   .topbar-left {
     gap: 8px;
     min-width: 0;
     flex: 1 1 auto;
     overflow: hidden;
+    display: flex;
+    align-items: center;
   }
   .breadcrumb {
     font-size: 13px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    min-width: 0;
+    max-width: 150px;
+    flex-shrink: 1;
   }
   .bc-root, .bc-sep {
-    display: none;
+    display: none !important;
   }
   .bc-current {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    display: block;
     max-width: 140px;
-    display: inline-block;
-    vertical-align: middle;
+  }
+  .topbar-center {
+    display: none !important;
   }
   .topbar-right {
     gap: 6px;
     flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    margin-left: auto;
   }
   .topbar-agent-pill {
-    padding: 5px 8px;
+    padding: 4px 8px;
     font-size: 11px;
     gap: 4px;
+    white-space: nowrap;
+    flex-shrink: 0;
   }
   .topbar-agent-pill .agent-pill-text {
-    display: none;
+    display: none !important;
   }
   .header-cta-btn {
     padding: 6px 9px;
+    flex-shrink: 0;
   }
   .header-cta-btn span {
-    display: none;
+    display: none !important;
+  }
+  .header-cta-btn svg {
+    margin: 0;
   }
   .topbar-avatar {
-    width: 32px;
-    height: 32px;
+    width: 30px;
+    height: 30px;
     font-size: 11px;
+    flex-shrink: 0;
   }
 }
 
 @media (max-width: 480px) {
+  .saas-topbar {
+    padding: 0 8px;
+    gap: 6px;
+  }
+  .topbar-left {
+    gap: 6px;
+  }
+  .breadcrumb {
+    max-width: 115px;
+  }
   .bc-current {
     max-width: 110px;
     font-size: 12px;
   }
   .icon-btn-round {
-    width: 30px;
-    height: 30px;
+    width: 28px;
+    height: 28px;
   }
   .topbar-right {
     gap: 4px;
+  }
+  .topbar-agent-pill {
+    padding: 4px;
+    border-radius: 50%;
+    width: 24px;
+    height: 24px;
+    justify-content: center;
+  }
+  .topbar-agent-pill .status-dot {
+    margin: 0;
+  }
+  .header-cta-btn {
+    padding: 6px 7px;
   }
   .saas-kpi-grid {
     grid-template-columns: 1fr;
