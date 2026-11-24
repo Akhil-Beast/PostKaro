@@ -14,15 +14,26 @@ CLASH = timedelta(minutes=30)      # two posts on one platform closer than this 
 
 
 def day_times(platform, s):
-    times = sorted(s['times'].get(platform) or ['18:00'])
-    per_day = max(1, int(s.get('per_day') or 1))
-    out = [tuple(map(int, t.split(':'))) for t in times[:per_day]]
+    times = sorted(s.get('times', {}).get(platform) or ['18:00'])
+    per_day = max(1, int(s.get('per_day') or 10))
+    if len(times) >= per_day:
+        return [tuple(map(int, t.split(':'))) for t in times[:per_day]]
+    out = [tuple(map(int, t.split(':'))) for t in times]
+    step = max(1, 24 // per_day)
+    curr_h, curr_m = out[0]
     while len(out) < per_day:
-        h, m = out[-1]
-        if h + 3 > 23:
-            break
-        out.append((h + 3, m))
-    return out
+        curr_h = (curr_h + step) % 24
+        if not any(h == curr_h for h, m in out):
+            out.append((curr_h, curr_m))
+        else:
+            for cand in range(24):
+                if not any(h == cand for h, m in out):
+                    out.append((cand, curr_m))
+                    break
+            else:
+                break
+    out.sort()
+    return out[:per_day]
 
 
 def slots(platform, s, now):

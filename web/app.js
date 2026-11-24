@@ -1461,7 +1461,7 @@ async function dashboardPage() {
         </div>
         <div class="saas-kpi-val" id="kpi-scheduled">0</div>
         <div class="saas-kpi-footer">
-          <span class="saas-trend-badge neutral">Auto 3:00 AM</span>
+          <span class="saas-trend-badge neutral">10 Slots / Day</span>
           <span class="saas-kpi-sub" id="kpi-scheduled-sub">Calendar ready</span>
         </div>
       </div>
@@ -2633,7 +2633,7 @@ async function analyticsPage() {
           <span class="saas-kpi-icon-wrap purple">${icon('clock', 17)}</span>
         </div>
         <div class="saas-kpi-val" id="ana-kpi-sched">0</div>
-        <div class="saas-kpi-footer"><span class="saas-trend-badge neutral">Auto 3:00 AM</span><span class="saas-kpi-sub">Scheduled across slots</span></div>
+        <div class="saas-kpi-footer"><span class="saas-trend-badge neutral">10 Slots / Day</span><span class="saas-kpi-sub">Scheduled across slots</span></div>
       </div>
       <div class="saas-kpi-card">
         <div class="saas-kpi-top">

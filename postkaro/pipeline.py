@@ -363,7 +363,7 @@ def process_task(task):
     # ----------------- STAGE 3: PICK VIRAL MOMENTS -----------------
     if task['stage'] in ('queued', 'downloading', 'transcribing', 'picking_moments'):
         print(f"[Pipeline] Picking top viral segments for {proj_name}...")
-        clips_plan = auto_pick_moments(proj_dir, max_clips=5)
+        clips_plan = auto_pick_moments(proj_dir, max_clips=10)
         cp['clips_plan'] = clips_plan
         cp['clips_count'] = len(clips_plan)
         db.update_video_task(tid, stage='rendering', progress=0.70, clips_count=len(clips_plan), checkpoint=cp)
@@ -411,7 +411,7 @@ def process_task(task):
                 db.update_post(pid, when_utc=db.iso(when_dt), state='scheduled')
                 db.log(pid, f"Auto-scheduled at {db.iso(when_dt)} by AI pipeline")
 
-    final_clips_count = cp.get('rendered_count') or cp.get('clips_count') or 5
+    final_clips_count = cp.get('rendered_count') or cp.get('clips_count') or 10
     db.update_video_task(
         tid,
         stage='completed',
