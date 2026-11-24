@@ -122,9 +122,8 @@ def _short(e):
 
 
 REASONS = {
-    'quotaExceeded': ('This Google project used up today\'s YouTube allowance (100 uploads a day). It resets at '
-                      'midnight US Pacific time.', False),
-    'uploadLimitExceeded': ('Your channel reached YouTube\'s daily upload limit. Try again tomorrow.', False),
+    'quotaExceeded': ('This Google project used up today\'s YouTube allowance. PostKaro will retry tomorrow.', True),
+    'uploadLimitExceeded': ('Your channel reached YouTube\'s daily upload limit. PostKaro will retry automatically.', True),
     'insufficientPermissions': ('The login lacks YouTube permission.', None),
     'youtubeSignupRequired': ('This Google account has no YouTube channel.', None),
     'invalidPublishAt': ('YouTube refused the posting time.', False),
@@ -149,7 +148,10 @@ def _err(e):
             pass
         if reason in REASONS:
             msg, retry = REASONS[reason]
-            return PlatformError(msg, retry=bool(retry), login=retry is None)
+            err = PlatformError(msg, retry=bool(retry), login=retry is None)
+            if retry:
+                err.patient = True
+            return err
         if status == 401:
             return PlatformError('The YouTube login no longer works.', login=True)
         if status >= 500 or status == 429:
@@ -163,8 +165,8 @@ def _err(e):
 class YouTube(Platform):
     name = 'youtube'
     remote_schedule = True
-    upload_ahead = None
-    max_ahead = None
+    upload_ahead = timedelta(hours=8)
+    max_ahead = timedelta(hours=8)
     min_ahead = timedelta(minutes=2)
 
     def check(self, account):
