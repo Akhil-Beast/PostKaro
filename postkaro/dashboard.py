@@ -46,6 +46,9 @@ def get_stats():
     # Also include active pipeline tasks in total_processing
     active_pipeline = sum(1 for t in video_tasks if t['stage'] in ('downloading', 'transcribing', 'picking_moments', 'rendering'))
 
+    failed_video_tasks = sum(1 for t in video_tasks if t['stage'] == 'failed')
+    retrying_video_tasks = sum(1 for t in video_tasks if t['stage'] == 'retrying')
+
     return {
         'total_videos_selected': total_selected,
         'total_clips_generated': total_clips,
@@ -54,8 +57,10 @@ def get_stats():
         'total_pending': total_scheduled,  # Set to actual scheduled count so legacy consumers match
         'total_drafts': total_drafts,
         'scheduled_clips': scheduled_clips,
-        'total_processing': total_processing + active_pipeline,
-        'total_failed': total_failed,
+        'total_processing': total_processing + active_pipeline + retrying_video_tasks,
+        'total_failed': failed_video_tasks if failed_video_tasks > 0 else total_failed,
+        'failed_video_tasks': failed_video_tasks,
+        'retrying_video_tasks': retrying_video_tasks,
     }
 
 

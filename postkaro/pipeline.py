@@ -5,6 +5,7 @@ import subprocess
 import sys
 import threading
 import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 # Safe imports from postkaro
@@ -148,7 +149,11 @@ def sync_cloud_tasks():
         for ct in cloud_queued:
             existing = db.one("SELECT id, stage FROM video_tasks WHERE task_id=? OR (url=? AND url IS NOT NULL)",
                               (ct.get('task_id'), ct.get('url')))
-            if not existing:
+            if existing:
+                if existing['stage'] in ('failed', 'retrying') and ct.get('stage') == 'queued':
+                    db.update_video_task(existing['id'], stage='queued', progress=0.0, attempts=0, next_try=None, error=None)
+                    print(f"[Pipeline Sync] Cloud triggered immediate retry for task #{existing['id']}: {ct.get('title')}")
+            else:
                 db.add_video_task({
                     'task_id': ct.get('task_id'),
                     'source_type': ct.get('source_type', 'youtube'),
@@ -298,6 +303,113 @@ def upload_clips_to_gdrive(clips_paths):
         return []
 
 
+PIPELINE_RETRY_BACKOFF = [
+    60,    # 1 min (Attempt 1)
+    180,   # 3 mins (Attempt 2)
+    600,   # 10 mins (Attempt 3)
+    1800,  # 30 mins (Attempt 4)
+    3600,  # 60 mins (Attempt 5)
+]
+MAX_PIPELINE_RETRIES = 5
+
+
+def handle_task_failure(task, error_msg, checkpoint=None):
+    """
+    Automatic retry handler for video processing tasks.
+    Instead of permanently halting on transient network or extractor errors,
+    it automatically schedules retries with exponential backoff up to MAX_PIPELINE_RETRIES.
+    """
+    tid = task['id']
+    task_uuid = task.get('task_id')
+    attempts = int(task.get('attempts') or 0) + 1
+    max_retries = int(task.get('max_retries') or MAX_PIPELINE_RETRIES)
+    cp = checkpoint if checkpoint is not None else (task.get('checkpoint') or {})
+
+    clean_err = str(error_msg).strip()
+    if len(clean_err) > 250:
+        clean_err = clean_err[:250] + '...'
+
+    if attempts <= max_retries:
+        backoff_idx = min(attempts - 1, len(PIPELINE_RETRY_BACKOFF) - 1)
+        wait_seconds = PIPELINE_RETRY_BACKOFF[backoff_idx]
+        next_dt = datetime.now(timezone.utc) + timedelta(seconds=wait_seconds)
+        next_iso = db.iso(next_dt)
+        wait_str = f"{wait_seconds // 60}m" if wait_seconds >= 60 else f"{wait_seconds}s"
+        full_err = f"Attempt {attempts}/{max_retries} failed: {clean_err} (Auto-retrying in {wait_str})"
+
+        print(f"[Pipeline Auto-Retry] Task #{tid} ({task.get('title')}) failed. Retrying in {wait_str} (attempt {attempts}/{max_retries}).")
+        db.update_video_task(
+            tid,
+            stage='retrying',
+            attempts=attempts,
+            max_retries=max_retries,
+            next_try=next_iso,
+            error=full_err,
+            checkpoint=cp
+        )
+        notify_cloud_task(
+            task_uuid,
+            stage='retrying',
+            attempts=attempts,
+            max_retries=max_retries,
+            next_try=next_iso,
+            error=full_err
+        )
+    else:
+        full_err = f"Permanently failed after {attempts - 1} automatic retries: {clean_err}"
+        print(f"[Pipeline Auto-Retry] Task #{tid} exceeded max retries ({max_retries}). Stage set to failed.")
+        db.update_video_task(
+            tid,
+            stage='failed',
+            attempts=attempts,
+            max_retries=max_retries,
+            next_try=None,
+            error=full_err,
+            checkpoint=cp
+        )
+        notify_cloud_task(
+            task_uuid,
+            stage='failed',
+            attempts=attempts,
+            max_retries=max_retries,
+            next_try=None,
+            error=full_err
+        )
+
+
+def auto_recover_failed_tasks():
+    """
+    Scans for any tasks sitting in 'failed' status that have attempts < MAX_PIPELINE_RETRIES.
+    Automatically requeues them so the user never has to manually click Retry.
+    """
+    failed = db.rows(
+        "SELECT * FROM video_tasks WHERE stage='failed' AND (attempts IS NULL OR attempts < ?) ORDER BY id ASC",
+        (MAX_PIPELINE_RETRIES,)
+    )
+    for f in failed:
+        tid = f['id']
+        attempts = int(f.get('attempts') or 0)
+        print(f"[Pipeline Auto-Recovery] Re-queuing failed task #{tid} ({f.get('title')})...")
+        db.update_video_task(
+            tid,
+            stage='queued',
+            progress=0.10,
+            attempts=attempts,
+            max_retries=MAX_PIPELINE_RETRIES,
+            next_try=None,
+            error="Auto-retry scheduled"
+        )
+        notify_cloud_task(
+            f.get('task_id'),
+            stage='queued',
+            progress=0.10,
+            attempts=attempts,
+            max_retries=MAX_PIPELINE_RETRIES,
+            next_try=None,
+            error="Auto-retry scheduled"
+        )
+
+
 def process_task(task):
     """
     Executes a single video processing task with granular checkpoints.
@@ -318,7 +430,7 @@ def process_task(task):
     print(f"[Pipeline] Local GPU processing task #{tid}: {title} (Stage: {task.get('stage')})")
 
     # ----------------- STAGE 1: DOWNLOAD & FETCH -----------------
-    if task['stage'] in ('queued', 'downloading'):
+    if task['stage'] in ('queued', 'downloading', 'retrying'):
         db.update_video_task(tid, stage='downloading', progress=0.10, checkpoint=cp)
         notify_cloud_task(task_uuid, stage='downloading', progress=0.10)
 
@@ -330,22 +442,21 @@ def process_task(task):
             r = run_clipkaro(['fetch', url])
             pdir = find_project_dir(url, video_id, title)
             if not pdir:
-                err = f"Fetch failed: {r.stderr[:200] if r.stderr else 'No output folder created'}"
-                db.update_video_task(tid, stage='failed', error=err, checkpoint=cp)
-                notify_cloud_task(task_uuid, stage='failed', error=err)
+                err = f"Fetch failed: {r.stderr[:200] if r.stderr else (r.stdout[-200:] if r.stdout else 'No output folder created')}"
+                handle_task_failure(task, err, cp)
                 return False
 
         proj_name = pdir.name
         cp['proj_name'] = proj_name
         cp['proj_dir'] = str(pdir)
-        db.update_video_task(tid, stage='transcribing', progress=0.35, checkpoint=cp)
-        notify_cloud_task(task_uuid, stage='transcribing', progress=0.35)
+        db.update_video_task(tid, stage='transcribing', progress=0.35, checkpoint=cp, error=None)
+        notify_cloud_task(task_uuid, stage='transcribing', progress=0.35, error=None)
 
     proj_dir = Path(cp.get('proj_dir') or str(find_project_dir(url, video_id, title)))
     proj_name = cp.get('proj_name') or proj_dir.name
 
     # ----------------- STAGE 2: TRANSCRIBE CHECK -----------------
-    if task['stage'] in ('queued', 'downloading', 'transcribing'):
+    if task['stage'] in ('queued', 'downloading', 'transcribing', 'retrying'):
         tfile = proj_dir / 'transcript.json'
         if not tfile.exists():
             wfile = proj_dir / 'transcript' / 'words.json'
@@ -354,23 +465,27 @@ def process_task(task):
 
         if not tfile.exists():
             print(f"[Pipeline] Running transcription on GPU...")
-            run_clipkaro(['fetch', url])
+            r = run_clipkaro(['fetch', url])
+            if not tfile.exists():
+                err = f"Transcription failed: {r.stderr[:200] if r.stderr else 'transcript words missing'}"
+                handle_task_failure(task, err, cp)
+                return False
 
         cp['transcript_file'] = str(tfile)
-        db.update_video_task(tid, stage='picking_moments', progress=0.55, checkpoint=cp)
-        notify_cloud_task(task_uuid, stage='picking_moments', progress=0.55)
+        db.update_video_task(tid, stage='picking_moments', progress=0.55, checkpoint=cp, error=None)
+        notify_cloud_task(task_uuid, stage='picking_moments', progress=0.55, error=None)
 
     # ----------------- STAGE 3: PICK VIRAL MOMENTS -----------------
-    if task['stage'] in ('queued', 'downloading', 'transcribing', 'picking_moments'):
+    if task['stage'] in ('queued', 'downloading', 'transcribing', 'picking_moments', 'retrying'):
         print(f"[Pipeline] Picking top viral segments for {proj_name}...")
         clips_plan = auto_pick_moments(proj_dir, max_clips=10)
         cp['clips_plan'] = clips_plan
         cp['clips_count'] = len(clips_plan)
-        db.update_video_task(tid, stage='rendering', progress=0.70, clips_count=len(clips_plan), checkpoint=cp)
-        notify_cloud_task(task_uuid, stage='rendering', progress=0.70, clips_count=len(clips_plan))
+        db.update_video_task(tid, stage='rendering', progress=0.70, clips_count=len(clips_plan), checkpoint=cp, error=None)
+        notify_cloud_task(task_uuid, stage='rendering', progress=0.70, clips_count=len(clips_plan), error=None)
 
     # ----------------- STAGE 4: CUT & RENDER (NVENC GPU) -----------------
-    if task['stage'] in ('queued', 'downloading', 'transcribing', 'picking_moments', 'rendering'):
+    if task['stage'] in ('queued', 'downloading', 'transcribing', 'picking_moments', 'rendering', 'retrying'):
         print(f"[Pipeline] Rendering 9:16 clips with NVENC GPU & subtitles...")
         run_clipkaro(['cut', proj_name])
         run_clipkaro(['edit', proj_name])
@@ -379,10 +494,15 @@ def process_task(task):
         if not rendered:
             rendered = list((proj_dir / 'clips').glob('*.mp4')) if (proj_dir / 'clips').exists() else []
 
+        if not rendered:
+            err = "Cut/Edit failed: No 9:16 mp4 clips rendered"
+            handle_task_failure(task, err, cp)
+            return False
+
         cp['rendered_clips'] = [str(f) for f in rendered]
         cp['rendered_count'] = len(rendered)
-        db.update_video_task(tid, progress=0.90, clips_count=len(rendered), checkpoint=cp)
-        notify_cloud_task(task_uuid, progress=0.90, clips_count=len(rendered))
+        db.update_video_task(tid, progress=0.90, clips_count=len(rendered), checkpoint=cp, error=None)
+        notify_cloud_task(task_uuid, progress=0.90, clips_count=len(rendered), error=None)
 
     # ----------------- STAGE 5: DRIVE UPLOAD, IMPORT & AUTO-SCHEDULE -----------------
     print(f"[Pipeline] Uploading clips to Google Drive & auto-scheduling at 3:00 AM...")
@@ -418,9 +538,12 @@ def process_task(task):
         progress=1.0,
         batch_id=batch_id,
         clips_count=final_clips_count,
+        attempts=0,
+        next_try=None,
+        error=None,
         checkpoint=cp
     )
-    notify_cloud_task(task_uuid, stage='completed', progress=1.0, clips_count=final_clips_count)
+    notify_cloud_task(task_uuid, stage='completed', progress=1.0, clips_count=final_clips_count, error=None)
     print(f"[Pipeline] Task #{tid} ({title}) successfully COMPLETED! Generated {final_clips_count} clips.")
     return True
 
@@ -447,8 +570,7 @@ def run_queue_step():
             return process_task(task)
         except Exception as e:
             print(f"[Pipeline Error on Task #{task['id']}]: {e}")
-            db.update_video_task(task['id'], stage='failed', error=str(e)[:300])
-            notify_cloud_task(task.get('task_id'), stage='failed', error=str(e)[:300])
+            handle_task_failure(task, str(e), task.get('checkpoint') or {})
             return False
 
 
@@ -471,11 +593,16 @@ def start_background_pipeline():
                 pass
 
             try:
+                auto_recover_failed_tasks()
+            except Exception as e:
+                pass
+
+            try:
                 processed = run_queue_step()
-                time.sleep(2.0 if processed else 10.0)
+                time.sleep(2.0 if processed else 8.0)
             except Exception as e:
                 print(f"[Pipeline Exception in loop]: {e}")
-                time.sleep(10.0)
+                time.sleep(8.0)
 
     _WORKER_THREAD = threading.Thread(target=_loop, daemon=True, name='postkaro-pipeline')
     _WORKER_THREAD.start()

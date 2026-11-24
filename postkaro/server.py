@@ -736,6 +736,9 @@ def discovery_sync_tasks(request, body):
                 stage=lt.get('stage'),
                 progress=lt.get('progress'),
                 error=lt.get('error'),
+                attempts=lt.get('attempts', 0),
+                max_retries=lt.get('max_retries', 5),
+                next_try=lt.get('next_try'),
                 clips_count=lt.get('clips_count'),
                 checkpoint=lt.get('checkpoint')
             )
@@ -756,6 +759,9 @@ def discovery_sync_tasks(request, body):
                 'stage': lt.get('stage', 'queued'),
                 'progress': lt.get('progress', 0.0),
                 'clips_count': lt.get('clips_count', 0),
+                'attempts': lt.get('attempts', 0),
+                'max_retries': lt.get('max_retries', 5),
+                'next_try': lt.get('next_try'),
                 'batch_id': lt.get('batch_id'),
                 'checkpoint': lt.get('checkpoint')
             })
@@ -766,7 +772,7 @@ def discovery_update_task(request, body):
     from . import db
     task_id = body.get('task_id')
     kwargs = {}
-    for k in ('stage', 'progress', 'error', 'clips_count'):
+    for k in ('stage', 'progress', 'error', 'clips_count', 'attempts', 'max_retries', 'next_try'):
         if k in body:
             kwargs[k] = body[k]
     if task_id:
@@ -1007,7 +1013,7 @@ def pipeline_action(request, body):
     elif action == 'retry':
         task_id = body.get('task_id')
         if task_id:
-            db.update_video_task(task_id, stage='queued', progress=0.0, error=None)
+            db.update_video_task(task_id, stage='queued', progress=0.0, attempts=0, next_try=None, error=None)
             pipeline.set_paused(False)
             pipeline.start_background_pipeline()
             return {'status': 'retried'}

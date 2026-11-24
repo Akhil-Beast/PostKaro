@@ -762,6 +762,7 @@ async function queuePage() {
     picking_moments: '<span class="badge info">' + icon('wand-sparkles', 13) + '<span>Picking Moments</span></span>',
     rendering: '<span class="badge info">' + icon('loader-circle', 13, 'spin') + '<span>Rendering</span></span>',
     processing: '<span class="badge info">' + icon('loader-circle', 13, 'spin') + '<span>Processing</span></span>',
+    retrying: '<span class="badge warn" style="background:#fef3c7; color:#b45309; border:1px solid #fde68a;">' + icon('rotate-cw', 13, 'spin') + '<span>Auto-Retrying</span></span>',
     completed: '<span class="badge ok">' + icon('circle-check', 13) + '<span>Completed</span></span>',
     failed: '<span class="badge bad">' + icon('circle-x', 13) + '<span>Failed</span></span>',
     paused: '<span class="badge warn">' + icon('circle-alert', 13) + '<span>Paused</span></span>'
@@ -798,6 +799,9 @@ async function queuePage() {
               const pct = Math.round((t.progress || 0) * (t.progress <= 1.0 ? 100 : 1));
               const status = t.stage === 'completed' ? 'completed' : (t.status || t.stage || 'queued');
               const thumbUrl = t.thumbnail || (t.video_id ? `https://i.ytimg.com/vi/${t.video_id}/hqdefault.jpg` : '');
+              const retryBadge = status === 'retrying'
+                ? `<span class="badge warn" style="background:#fef3c7; color:#b45309; border:1px solid #fde68a;" title="${esc(t.error || '')}">${icon('rotate-cw', 13, 'spin')}<span>Retrying (${t.attempts || 1}/${t.max_retries || 5})</span></span>`
+                : (statusBadges[status] || `<span class="badge">${esc(status)}</span>`);
               return `
                 <tr>
                   <td class="task-cell-video">
@@ -810,12 +814,12 @@ async function queuePage() {
                     </div>
                   </td>
                   <td><span class="chip">${esc(t.topic || 'General')}</span></td>
-                  <td>${statusBadges[status] || `<span class="badge">${esc(status)}</span>`}</td>
+                  <td>${retryBadge}</td>
                   <td><code>${esc(t.stage || 'queued')}</code></td>
                   <td>
                     <div style="display:flex; align-items:center; gap:6px;">
                       <div class="pbar-track" style="flex:1; height:6px; background:#e2e8f0; border-radius:999px; overflow:hidden;">
-                        <div class="pbar-fill" style="width:${pct}%; height:100%; background:${status==='completed'?'#10b981':'#6366f1'}; border-radius:999px; transition:width 0.3s ease;"></div>
+                        <div class="pbar-fill" style="width:${pct}%; height:100%; background:${status==='completed'?'#10b981':(status==='retrying'?'#f59e0b':'#6366f1')}; border-radius:999px; transition:width 0.3s ease;"></div>
                       </div>
                       <span class="num" style="font-size:11px; font-weight:600;">${pct}%</span>
                     </div>
@@ -824,7 +828,7 @@ async function queuePage() {
                   <td><small class="muted">${esc(t.device || 'NVIDIA RTX 3050')}</small></td>
                   <td>
                     ${t.stage === 'completed' ? `<a href="#/" class="btn btn-sm btn-ghost">${icon('sparkles', 12)}<span>View Clips</span></a>` : ''}
-                    ${t.status === 'failed' || status === 'failed' ? `<button class="btn btn-sm btn-primary" data-task-act="retry" data-tid="${t.task_id}">${icon('rotate-ccw', 12)}<span>Retry</span></button>` : ''}
+                    ${t.status === 'failed' || status === 'failed' || t.stage === 'retrying' || status === 'retrying' ? `<button class="btn btn-sm btn-primary" data-task-act="retry" data-tid="${t.task_id}" title="Retry immediately">${icon('rotate-ccw', 12)}<span>${t.stage === 'retrying' ? 'Retry Now' : 'Retry'}</span></button>` : ''}
                   </td>
                 </tr>
               `;
@@ -1330,11 +1334,15 @@ async function loadDiscoveryTasks() {
                 picking_moments: '<span class="badge info">' + icon('wand-sparkles', 13) + '<span>Picking Moments</span></span>',
                 rendering: '<span class="badge info">' + icon('loader-circle', 13, 'spin') + '<span>Rendering</span></span>',
                 processing: '<span class="badge info">' + icon('loader-circle', 13, 'spin') + '<span>Processing</span></span>',
+                retrying: '<span class="badge warn" style="background:#fef3c7; color:#b45309; border:1px solid #fde68a;">' + icon('rotate-cw', 13, 'spin') + '<span>Auto-Retrying</span></span>',
                 completed: '<span class="badge ok">' + icon('circle-check', 13) + '<span>Completed</span></span>',
                 failed: '<span class="badge bad">' + icon('circle-x', 13) + '<span>Failed</span></span>',
                 paused: '<span class="badge warn">' + icon('circle-alert', 13) + '<span>Paused</span></span>'
               };
               const thumbUrl = t.thumbnail || (t.video_id ? `https://i.ytimg.com/vi/${t.video_id}/hqdefault.jpg` : '');
+              const retryBadge = status === 'retrying'
+                ? `<span class="badge warn" style="background:#fef3c7; color:#b45309; border:1px solid #fde68a;" title="${esc(t.error || '')}">${icon('rotate-cw', 13, 'spin')}<span>Retrying (${t.attempts || 1}/${t.max_retries || 5})</span></span>`
+                : (statusBadges[status] || `<span class="badge">${esc(status)}</span>`);
               return `
                 <tr>
                   <td class="task-cell-video">
@@ -1347,12 +1355,12 @@ async function loadDiscoveryTasks() {
                     </div>
                   </td>
                   <td><span class="chip">${esc(t.topic || 'General')}</span></td>
-                  <td>${statusBadges[status] || `<span class="badge">${esc(status)}</span>`}</td>
+                  <td>${retryBadge}</td>
                   <td><code>${esc(t.stage || 'queued')}</code></td>
                   <td>
                     <div style="display:flex; align-items:center; gap:6px;">
-                      <div class="pbar-track">
-                        <div class="pbar-fill" style="width:${pct}%;"></div>
+                      <div class="pbar-track" style="flex:1; height:6px; background:#e2e8f0; border-radius:999px; overflow:hidden;">
+                        <div class="pbar-fill" style="width:${pct}%; height:100%; background:${status==='completed'?'#10b981':(status==='retrying'?'#f59e0b':'#6366f1')}; border-radius:999px; transition:width 0.3s ease;"></div>
                       </div>
                       <span class="num" style="font-size:11px; font-weight:600;">${pct}%</span>
                     </div>
@@ -1362,7 +1370,7 @@ async function loadDiscoveryTasks() {
                   <td>
                     ${t.status === 'processing' || status === 'processing' ? `<button class="btn btn-sm btn-ghost" data-task-act="pause" data-tid="${t.task_id}">Pause</button>` : ''}
                     ${t.status === 'paused' || status === 'paused' ? `<button class="btn btn-sm btn-primary" data-task-act="resume" data-tid="${t.task_id}">Resume</button>` : ''}
-                    ${t.status === 'failed' || status === 'failed' ? `<button class="btn btn-sm btn-primary" data-task-act="retry" data-tid="${t.task_id}">${icon('rotate-ccw', 12)}<span>Retry</span></button>` : ''}
+                    ${t.status === 'failed' || status === 'failed' || t.stage === 'retrying' || status === 'retrying' ? `<button class="btn btn-sm btn-primary" data-task-act="retry" data-tid="${t.task_id}" title="Retry immediately">${icon('rotate-ccw', 12)}<span>${t.stage === 'retrying' ? 'Retry Now' : 'Retry'}</span></button>` : ''}
                   </td>
                 </tr>
               `;
@@ -1883,7 +1891,7 @@ async function refreshDashboardStats() {
       }
     }
     const prEl = $('#kpi-processing'); if (prEl) prEl.textContent = s.total_processing ?? s.clips_processing ?? 0;
-    const fEl = $('#kpi-failed'); if (fEl) fEl.textContent = s.total_failed ?? s.failed_uploads ?? 0;
+    const fEl = $('#kpi-failed'); if (fEl) fEl.textContent = s.failed_video_tasks ?? s.total_failed ?? 0;
 
     // Platform Publishing Controls
     if (s.platform_controls) renderPlatformControls(s.platform_controls);
@@ -1997,6 +2005,7 @@ async function refreshDashboardTasks() {
       rendering: '<span class="badge info">' + icon('loader-circle', 13, 'spin') + '<span>Rendering</span></span>',
       queued: '<span class="badge info">' + icon('clock', 13) + '<span>Queued</span></span>',
       pending: '<span class="badge info">' + icon('clock', 13) + '<span>Queued</span></span>',
+      retrying: '<span class="badge warn" style="background:#fef3c7; color:#b45309; border:1px solid #fde68a;">' + icon('rotate-cw', 13, 'spin') + '<span>Auto-Retrying</span></span>',
       failed: '<span class="badge bad">' + icon('circle-x', 13) + '<span>Failed</span></span>',
       paused: '<span class="badge warn">' + icon('circle-alert', 13) + '<span>Paused</span></span>'
     };
@@ -2041,7 +2050,7 @@ async function refreshDashboardTasks() {
             <div style="display:flex; align-items:center; gap:6px;">
               ${pStage === 'processing' ? `<button class="btn btn-sm btn-ghost" data-task-act="pause" data-tid="${r.task_id}">Pause</button>` : ''}
               ${pStage === 'paused' ? `<button class="btn btn-sm btn-primary" data-task-act="resume" data-tid="${r.task_id}">Resume</button>` : ''}
-              ${pStage === 'failed' ? `<button class="btn btn-sm btn-primary" data-task-act="retry" data-tid="${r.task_id}">${icon('rotate-ccw', 12)}<span>Retry</span></button>` : ''}
+              ${pStage === 'failed' || pStage === 'retrying' ? `<button class="btn btn-sm btn-primary" data-task-act="retry" data-tid="${r.task_id}">${icon('rotate-ccw', 12)}<span>${pStage === 'retrying' ? 'Retry Now' : 'Retry'}</span></button>` : ''}
               ${r.batch_id ? `<a href="#/post/${r.batch_id}" class="btn btn-sm btn-ghost" title="Open Batch">${icon('external-link', 12)}</a>` : ''}
             </div>
           </td>

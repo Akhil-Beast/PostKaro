@@ -61,6 +61,9 @@ CREATE TABLE IF NOT EXISTS video_tasks (
     clips_count INTEGER DEFAULT 0,
     batch_id INTEGER,
     error TEXT,
+    attempts INTEGER DEFAULT 0,
+    max_retries INTEGER DEFAULT 5,
+    next_try TEXT,
     checkpoint TEXT DEFAULT '{}',
     created_at TEXT,
     updated_at TEXT
@@ -88,6 +91,7 @@ def parse(s):
 ADDED = {
     'clips': [('cover', 'TEXT'), ('cover_kind', 'TEXT'), ('cover_ms', 'INTEGER'), ('cover_v', 'INTEGER')],
     'posts': [('note', 'TEXT')],
+    'video_tasks': [('attempts', 'INTEGER DEFAULT 0'), ('max_retries', 'INTEGER DEFAULT 5'), ('next_try', 'TEXT')],
 }
 _ready = set()
 
@@ -288,7 +292,14 @@ def get_active_video_task():
 
 def get_resumable_tasks():
     """Returns all unfinished tasks that need to be processed or resumed after reboot."""
-    out = rows("SELECT * FROM video_tasks WHERE stage NOT IN ('completed', 'failed') ORDER BY id ASC")
+    cur_iso = iso(now())
+    out = rows(
+        "SELECT * FROM video_tasks "
+        "WHERE stage NOT IN ('completed', 'failed') "
+        "  AND (next_try IS NULL OR next_try <= ?) "
+        "ORDER BY id ASC",
+        (cur_iso,)
+    )
     for r in out:
         try:
             r['checkpoint'] = json.loads(r.get('checkpoint') or '{}')
