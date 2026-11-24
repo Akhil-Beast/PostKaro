@@ -10,7 +10,7 @@ NAMES = {'youtube': 'YouTube', 'instagram': 'Instagram', 'facebook': 'Facebook'}
 
 DEFAULTS = {
     'timezone': 'Asia/Kolkata',
-    'times': {'youtube': ['18:00'], 'instagram': ['19:00'], 'facebook': ['20:00']},
+    'times': {'youtube': ['03:00'], 'instagram': ['19:00'], 'facebook': ['20:00']},
     'per_day': 1,                    # clips per day on each platform ("Plan for me")
     'my_channels': [],               # no "not your video" warning for these channel names
     'youtube_made_for_kids': False,

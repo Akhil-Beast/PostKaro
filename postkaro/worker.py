@@ -93,7 +93,14 @@ def step(pid, now, s):
                     return missed(p, when)
                 when = None
             if when and when - now < plat.min_ahead:
-                when = None                                 # too close to schedule: post at once
+                if plat.name == 'youtube':
+                    # YouTube requires at least 2 min ahead for scheduled release (publishAt).
+                    # Rather than posting live right away, push the slot safely ahead
+                    when = now + timedelta(minutes=15)
+                    db.update_post(pid, when_utc=db.iso(when))
+                    db.log(pid, f"Adjusted schedule time to {db.iso(when)} to maintain scheduled release on YouTube")
+                else:
+                    when = None                             # too close to schedule: post at once
             if when is None and p['when_utc']:
                 db.update_post(pid, when_utc=None)
             p['when'] = when

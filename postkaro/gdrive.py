@@ -212,9 +212,29 @@ def sync_drive_to_batch():
             )
         imported += 1
 
+    if batch_id:
+        auto_plan_batch(batch_id)
+
     return {
         'imported': imported,
         'total': len(clips),
         'batch_id': batch_id,
         'message': f"Synced with Google Drive: {imported} new clip(s) imported, {len(clips)} total in Drive."
     }
+
+
+def auto_plan_batch(batch_id):
+    """Auto-assign scheduled 3:00 AM release times to all un-scheduled clips in the batch."""
+    s = settings.load()
+    from . import planner
+    todo = db.rows(
+        "SELECT p.id, p.platform, c.score, c.no FROM posts p JOIN clips c ON c.id=p.clip_id "
+        "WHERE c.batch_id=? AND c.removed=0 AND p.enabled=1 AND (p.when_utc IS NULL OR p.when_utc='')",
+        (batch_id,)
+    )
+    if todo:
+        taken = planner.queue_taken()
+        times = planner.plan(todo, s, taken=taken)
+        for pid, when_dt in times.items():
+            db.update_post(pid, when_utc=db.iso(when_dt))
+            db.log(pid, f"Auto-scheduled slot assigned: {db.iso(when_dt)}")

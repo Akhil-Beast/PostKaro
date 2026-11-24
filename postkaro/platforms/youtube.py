@@ -190,7 +190,17 @@ class YouTube(Platform):
         when = post.get('when')
         vis = s.get('youtube_visibility') or 'public'
         status = {'selfDeclaredMadeForKids': bool(s.get('youtube_made_for_kids')), 'containsSyntheticMedia': False}
-        if when and vis == 'public':
+
+        # Ensure video is scheduled on YouTube with publishAt (never made public immediately upon upload)
+        if vis == 'public':
+            if not when or when <= db.now() + timedelta(minutes=2):
+                # Auto-assign next scheduled slot (e.g. 3:00 AM) to maintain scheduled release
+                from .. import planner
+                gen = planner.slots('youtube', s, db.now())
+                when = next(gen)
+                post['when'] = when
+                db.update_post(post['id'], when_utc=db.iso(when))
+                db.log(post['id'], f"Assigned scheduled time {db.iso(when)} (private with publishAt on YouTube)")
             status.update(privacyStatus='private', publishAt=db.iso(when))
         else:
             status['privacyStatus'] = vis

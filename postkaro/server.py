@@ -377,6 +377,18 @@ def schedule(request, body):
                     clip_exists = True
         if not clip_exists:
             why.append('The video file is gone from its folder.')
+        if not post_now and not p.get('when_utc'):
+            from . import planner
+            s = settings.load()
+            taken = planner.queue_taken()
+            gen = planner.slots(p['platform'], s, db.now())
+            t = next(gen)
+            busy = list(taken.get(p['platform'], []))
+            while any(abs(t - b) < planner.CLASH for b in busy):
+                t = next(gen)
+            p['when_utc'] = db.iso(t)
+            db.update_post(pid, when_utc=p['when_utc'])
+            db.log(pid, f"Auto-assigned scheduled time: {p['when_utc']}")
         when = db.parse(p['when_utc'])
         if when and when < db.now():
             why.append('This time has passed. Pick a later time, or clear it to post now.')
