@@ -1073,6 +1073,7 @@ def routes():
         R('/api/discovery/sync_tasks', api(discovery_sync_tasks), methods=['POST']),
     R('/api/discovery/update_task', api(discovery_update_task), methods=['POST']),
         R('/api/dashboard/stats', api(dashboard_stats)),
+        R('/api/dashboard/summary', api(dashboard_stats)),
         R('/api/dashboard/charts', api(dashboard_charts)),
         R('/api/dashboard/tasks', api(dashboard_tasks)),
         R('/api/dashboard/live', api(dashboard_live)),

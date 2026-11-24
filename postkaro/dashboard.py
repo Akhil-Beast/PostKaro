@@ -14,7 +14,10 @@ def get_stats():
     - total_videos_selected
     - total_clips_generated
     - total_posted
-    - total_pending
+    - total_scheduled (actual posts queued/scheduled to go live)
+    - total_drafts (unscheduled drafts in editor)
+    - total_pending (alias of total_scheduled for backwards compatibility)
+    - scheduled_clips (distinct clips scheduled)
     - total_processing
     - total_failed
     """
@@ -30,9 +33,15 @@ def get_stats():
     posts_by_state = {r['state']: r['c'] for r in posts_rows}
 
     total_posted = posts_by_state.get('live', 0)
-    total_pending = posts_by_state.get('scheduled', 0) + posts_by_state.get('waiting', 0) + posts_by_state.get('draft', 0)
+    # Only posts that are actually scheduled/queued to go live (waiting or scheduled)
+    total_scheduled = posts_by_state.get('scheduled', 0) + posts_by_state.get('waiting', 0)
+    total_drafts = posts_by_state.get('draft', 0)
     total_processing = posts_by_state.get('uploading', 0) + posts_by_state.get('processing', 0) + posts_by_state.get('publishing', 0)
     total_failed = posts_by_state.get('failed', 0) + posts_by_state.get('missed', 0)
+
+    # Number of unique clips that are scheduled
+    sched_clips_row = db.one("SELECT COUNT(DISTINCT clip_id) as c FROM posts WHERE state IN ('scheduled', 'waiting')")
+    scheduled_clips = sched_clips_row['c'] if sched_clips_row else 0
 
     # Also include active pipeline tasks in total_processing
     active_pipeline = sum(1 for t in video_tasks if t['stage'] in ('downloading', 'transcribing', 'picking_moments', 'rendering'))
@@ -41,7 +50,10 @@ def get_stats():
         'total_videos_selected': total_selected,
         'total_clips_generated': total_clips,
         'total_posted': total_posted,
-        'total_pending': total_pending,
+        'total_scheduled': total_scheduled,
+        'total_pending': total_scheduled,  # Set to actual scheduled count so legacy consumers match
+        'total_drafts': total_drafts,
+        'scheduled_clips': scheduled_clips,
         'total_processing': total_processing + active_pipeline,
         'total_failed': total_failed,
     }

@@ -1462,7 +1462,7 @@ async function dashboardPage() {
         <div class="saas-kpi-val" id="kpi-scheduled">0</div>
         <div class="saas-kpi-footer">
           <span class="saas-trend-badge neutral">Auto 3:00 AM</span>
-          <span class="saas-kpi-sub">Calendar ready</span>
+          <span class="saas-kpi-sub" id="kpi-scheduled-sub">Calendar ready</span>
         </div>
       </div>
 
@@ -1873,7 +1873,15 @@ async function refreshDashboardStats() {
     const vEl = $('#kpi-videos'); if (vEl) vEl.textContent = s.total_videos_selected ?? s.videos_selected ?? 0;
     const cEl = $('#kpi-clips'); if (cEl) cEl.textContent = s.total_clips_generated ?? s.clips_generated ?? 0;
     const pEl = $('#kpi-posted'); if (pEl) pEl.textContent = s.total_posted ?? s.clips_posted ?? 0;
-    const sEl = $('#kpi-scheduled'); if (sEl) sEl.textContent = s.total_pending ?? s.clips_pending ?? 0;
+    const sEl = $('#kpi-scheduled'); if (sEl) sEl.textContent = s.total_scheduled ?? s.total_pending ?? 0;
+    const sSub = $('#kpi-scheduled-sub');
+    if (sSub) {
+      if (s.scheduled_clips) {
+        sSub.textContent = `${s.scheduled_clips} clip${s.scheduled_clips === 1 ? '' : 's'} ready`;
+      } else {
+        sSub.textContent = 'Calendar ready';
+      }
+    }
     const prEl = $('#kpi-processing'); if (prEl) prEl.textContent = s.total_processing ?? s.clips_processing ?? 0;
     const fEl = $('#kpi-failed'); if (fEl) fEl.textContent = s.total_failed ?? s.failed_uploads ?? 0;
 
@@ -1884,8 +1892,18 @@ async function refreshDashboardStats() {
     renderDailyChart(s.daily_uploads || []);
 
     // Platforms
-    const p = s.platforms || {};
-    const yt = p.youtube || 0, ig = p.instagram || 0, fb = p.facebook || 0;
+    let yt = 0, ig = 0, fb = 0;
+    if (Array.isArray(s.platforms)) {
+      s.platforms.forEach(item => {
+        if (item.platform === 'youtube') yt = item.count;
+        if (item.platform === 'instagram') ig = item.count;
+        if (item.platform === 'facebook') fb = item.count;
+      });
+    } else if (s.platforms && typeof s.platforms === 'object') {
+      yt = s.platforms.youtube || 0;
+      ig = s.platforms.instagram || 0;
+      fb = s.platforms.facebook || 0;
+    }
     const maxP = Math.max(yt, ig, fb, 1);
     const ytEl = $('#plat-val-yt'); if (ytEl) ytEl.textContent = yt;
     const igEl = $('#plat-val-ig'); if (igEl) igEl.textContent = ig;
@@ -2614,7 +2632,7 @@ async function analyticsPage() {
           <span class="saas-kpi-label">Scheduled in Calendar</span>
           <span class="saas-kpi-icon-wrap purple">${icon('clock', 17)}</span>
         </div>
-        <div class="saas-kpi-val" id="ana-kpi-sched">105</div>
+        <div class="saas-kpi-val" id="ana-kpi-sched">0</div>
         <div class="saas-kpi-footer"><span class="saas-trend-badge neutral">Auto 3:00 AM</span><span class="saas-kpi-sub">Scheduled across slots</span></div>
       </div>
       <div class="saas-kpi-card">
@@ -2687,12 +2705,12 @@ async function analyticsPage() {
 
   // Populate counts from dashboard stats
   try {
-    const d = await api('/dashboard/summary');
-    if (d && d.kpis) {
-      if ($('#ana-kpi-videos')) $('#ana-kpi-videos').textContent = d.kpis.videos_discovered || 2;
-      if ($('#ana-kpi-clips')) $('#ana-kpi-clips').textContent = d.kpis.clips_generated || 35;
-      if ($('#ana-kpi-sched')) $('#ana-kpi-sched').textContent = d.kpis.scheduled_posts || 105;
-      if ($('#ana-kpi-failed')) $('#ana-kpi-failed').textContent = d.kpis.failed_tasks || 0;
+    const s = await api('/dashboard/stats');
+    if (s) {
+      if ($('#ana-kpi-videos')) $('#ana-kpi-videos').textContent = s.total_videos_selected ?? 0;
+      if ($('#ana-kpi-clips')) $('#ana-kpi-clips').textContent = s.total_clips_generated ?? 0;
+      if ($('#ana-kpi-sched')) $('#ana-kpi-sched').textContent = s.total_scheduled ?? s.total_pending ?? 0;
+      if ($('#ana-kpi-failed')) $('#ana-kpi-failed').textContent = s.total_failed ?? 0;
     }
   } catch (e) {}
 }
