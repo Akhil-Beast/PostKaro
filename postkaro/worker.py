@@ -85,6 +85,8 @@ def step(pid, now, s):
             raise PlatformError(f'{settings.NAMES[p["platform"]]} is not connected. Connect it on the Accounts page, '
                                 f'then press Retry.')
         if st == 'scheduled':
+            if acc.get('status') == 'broken' and when and when > now:
+                return                                      # wait quietly until account is reconnected
             clip_ref = str(p['clip']['file'] or '')
             if os.name != 'nt' and len(clip_ref) > 2 and clip_ref[1] == ':' and not Path(clip_ref).exists():
                 from . import gdrive
@@ -229,10 +231,11 @@ def live(p, url):
     notify.send(f'✅ {label(p)} is live on {settings.NAMES[p["platform"]]}')
 
 
-def fail(p, reason):
+def fail(p, reason, send_notify=True):
     db.update_post(p['id'], state='failed', error=reason, next_try=None)
     db.log(p['id'], f'failed: {reason}')
-    notify.send(f'❌ {label(p)} on {settings.NAMES[p["platform"]]}: {reason}', urgent=True)
+    if send_notify:
+        notify.send(f'❌ {label(p)} on {settings.NAMES[p["platform"]]}: {reason}', urgent=True)
 
 
 def missed(p, when):
@@ -245,10 +248,18 @@ def missed(p, when):
 def problem(p, st, e, now):
     if e.login:
         acc = db.post_account(db.post(p['id']) or p)
+        was_broken = bool(acc and acc.get('status') == 'broken')
         if acc:
             db.run("UPDATE accounts SET status='broken', problem=? WHERE platform=? AND account_id=?",
                    (str(e), acc['platform'], acc['account_id']))
-        return fail(p, f'{e} Reconnect on the Accounts page, then press Retry.')
+        when = p.get('when')
+        if when and when > now:
+            db.update_post(p['id'], state='scheduled', next_try=db.iso(now + timedelta(minutes=10)),
+                           error=f'{e} Waiting for reconnect on Accounts page.')
+            if not was_broken:
+                notify.send(f'⚠ {settings.NAMES[p["platform"]]} login needed: reconnect on the Accounts page.', urgent=True)
+            return
+        return fail(p, f'{e} Reconnect on the Accounts page, then press Retry.', send_notify=not was_broken)
     n = int(p['attempts'] or 0)
     waits = RETRY_PATIENT if getattr(e, 'patient', False) else RETRY
     if e.retry and n < len(waits):

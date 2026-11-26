@@ -207,6 +207,10 @@ def save_account(platform, account_id, name, extra=None, expires=None, active=Tr
         'name=excluded.name, extra=excluded.extra, connected=excluded.connected, expires=excluded.expires, '
         'checked=excluded.checked, status="ok", problem=NULL, active=excluded.active',
         (platform, account_id, name, json.dumps(extra or {}), iso(now()), expires, iso(now()), int(active)))
+    run("UPDATE posts SET state='scheduled', error=NULL, attempts=0, next_try=NULL "
+        "WHERE platform=? AND state='failed' AND (account=? OR account IS NULL OR account='') "
+        "AND (error LIKE '%Reconnect%' OR error LIKE '%login%' OR error LIKE '%wrong key%')",
+        (platform, account_id))
 
 
 # ---------- Video Tasks & Pipeline Checkpoints ----------

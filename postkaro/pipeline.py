@@ -203,7 +203,7 @@ def sync_cloud_tasks():
             },
             method='POST'
         )
-        with urllib.request.urlopen(req, timeout=12) as resp:
+        with urllib.request.urlopen(req, timeout=25) as resp:
             data = json.loads(resp.read().decode('utf-8'))
 
         cloud_queued = data.get('cloud_queued', [])

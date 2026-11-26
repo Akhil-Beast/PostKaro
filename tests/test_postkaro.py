@@ -389,6 +389,12 @@ class TestWorker(Base):
         self.assertEqual(p['state'], 'failed')
         self.assertIn('Reconnect', p['error'])
         self.assertEqual(db.active_account('youtube')['status'], 'broken')
+        # Future scheduled posts don't immediately fail while login is broken, and failed-by-login posts recover on reconnect
+        pid2 = self.schedule('youtube', now + timedelta(hours=3))
+        self.tick(now)
+        self.assertEqual(db.post(pid2)['state'], 'scheduled')
+        db.save_account('youtube', 'UC1', 'Mine')
+        self.assertEqual(db.post(pid)['state'], 'scheduled')
 
     def test_not_connected(self):
         now = datetime(2026, 11, 11, 10, 0, tzinfo=UTC)
