@@ -545,6 +545,12 @@ def save_app(request, body):
         vault.delete('app:google:cleared')
         vault.put('app:google', {'client_id': inner['client_id'], 'client_secret': inner['client_secret'],
                                  'client_type': ctype})
+        if is_remote():
+            try:
+                from . import gdrive
+                gdrive.sync_drive_to_batch()
+            except Exception as e:
+                print(f"Google Drive post-save sync notice: {e}")
     elif name == 'meta':
         app_id, secret_ = str(body.get('app_id', '')).strip(), str(body.get('app_secret', '')).strip()
         if not app_id.isdigit() or len(secret_) < 16:
@@ -821,8 +827,82 @@ def discovery_sync_tasks(request, body):
                 'batch_id': lt.get('batch_id'),
                 'checkpoint': lt.get('checkpoint')
             })
+    snapshot = body.get('snapshot')
+    if snapshot:
+        _apply_cloud_snapshot(snapshot)
     cloud_tasks = db.list_video_tasks(stage='queued', limit=50)
     return {'status': 'synced', 'cloud_queued': cloud_tasks}
+
+
+def _apply_cloud_snapshot(snapshot):
+    """Upserts batches, clips, and posts mirrored from the Local PC Agent so Cloud counts/lists stay accurate."""
+    if not isinstance(snapshot, dict):
+        return
+    batch_map = {}
+    for b in snapshot.get('batches', []):
+        kit_val = b.get('kit')
+        if not kit_val:
+            continue
+        row = db.one("SELECT id FROM batches WHERE kit=?", (kit_val,))
+        if row:
+            bid = row['id']
+        else:
+            bid = db.run(
+                "INSERT INTO batches (kit, project, title, channel, channel_url, source_url, created) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (kit_val, b.get('project'), b.get('title'), b.get('channel'),
+                 b.get('channel_url'), b.get('source_url'), b.get('created'))
+            )
+        batch_map[b.get('id')] = bid
+
+    clip_map = {}
+    for c in snapshot.get('clips', []):
+        cbid = batch_map.get(c.get('batch_id'))
+        if not cbid:
+            continue
+        row = db.one("SELECT id, file, cover FROM clips WHERE batch_id=? AND (file=? OR no=?)",
+                     (cbid, c.get('file'), c.get('no')))
+        if row:
+            cid = row['id']
+            upd_f = c.get('file') if str(c.get('file') or '').startswith('gdrive:') else row['file']
+            upd_cov = c.get('cover') if c.get('cover') else row['cover']
+            if upd_f != row['file'] or upd_cov != row['cover']:
+                db.run("UPDATE clips SET file=?, cover=?, cover_kind=COALESCE(?, cover_kind) WHERE id=?",
+                       (upd_f, upd_cov, c.get('cover_kind'), cid))
+        else:
+            cid = db.run(
+                "INSERT INTO clips (batch_id, no, file, duration, size, score, title, caption, note, deep, "
+                "removed, cover, cover_kind) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)",
+                (cbid, c.get('no'), c.get('file'), c.get('duration'), c.get('size'), c.get('score'),
+                 c.get('title'), c.get('caption'), c.get('note'), int(bool(c.get('deep'))),
+                 c.get('cover'), c.get('cover_kind'))
+            )
+        clip_map[c.get('id')] = cid
+
+    for p in snapshot.get('posts', []):
+        ccid = clip_map.get(p.get('clip_id'))
+        plat = p.get('platform')
+        if not ccid or not plat:
+            continue
+        row = db.one("SELECT id, state FROM posts WHERE clip_id=? AND platform=?", (ccid, plat))
+        if not row:
+            db.run(
+                "INSERT INTO posts (clip_id, platform, enabled, title, body, when_utc, state, account, url, "
+                "error, posted_at, updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (ccid, plat, int(bool(p.get('enabled'))), p.get('title') or '', p.get('body') or '',
+                 p.get('when_utc'), p.get('state') or 'draft', p.get('account'), p.get('url'),
+                 p.get('error'), p.get('posted_at'), p.get('updated'))
+            )
+        else:
+            cur_st = row['state']
+            loc_st = p.get('state')
+            if (loc_st == 'live' and cur_st != 'live') or (cur_st == 'draft' and loc_st in ('scheduled', 'waiting', 'live')):
+                db.run(
+                    "UPDATE posts SET state=?, when_utc=COALESCE(?, when_utc), url=COALESCE(?, url), "
+                    "posted_at=COALESCE(?, posted_at), updated=COALESCE(?, updated), enabled=? WHERE id=?",
+                    (loc_st, p.get('when_utc'), p.get('url'), p.get('posted_at'), p.get('updated'),
+                     int(bool(p.get('enabled'))), row['id'])
+                )
 
 def discovery_update_task(request, body):
     from . import db

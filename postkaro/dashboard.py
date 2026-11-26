@@ -27,7 +27,8 @@ def get_stats():
 
     # 2. Clips & posts counts
     clips_row = db.one("SELECT COUNT(*) as c FROM clips WHERE removed=0")
-    total_clips = clips_row['c'] if clips_row else 0
+    video_tasks_clips = sum(int(t['clips_count'] or 0) for t in video_tasks if t['stage'] == 'completed')
+    total_clips = max(clips_row['c'] if clips_row else 0, video_tasks_clips)
 
     posts_rows = db.rows("SELECT state, COUNT(*) as c FROM posts GROUP BY state")
     posts_by_state = {r['state']: r['c'] for r in posts_rows}

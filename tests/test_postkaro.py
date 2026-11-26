@@ -535,12 +535,14 @@ class TestServer(Base):
         self.assertNotIn('"b"', self.c.get('/api/state').text)    # secrets never go to the page
 
     def test_remote_google_oauth(self):
+        from postkaro import gdrive
         from postkaro.platforms import youtube
         rk = 'O35_UBTCYYhnXTBt38O8Amplyg_PVDKP'
         self.c.cookies.set('pk', rk)
         rh = {'x-postkaro': rk, 'origin': 'https://example.onrender.com'}
         with mock.patch.dict(os.environ, {'RENDER': 'true', 'RENDER_EXTERNAL_URL': 'https://example.onrender.com',
-                                          'GOOGLE_CLIENT_ID': 'env_id', 'GOOGLE_CLIENT_SECRET': 'env_sec'}):
+                                          'GOOGLE_CLIENT_ID': 'env_id', 'GOOGLE_CLIENT_SECRET': 'env_sec'}), \
+             mock.patch.object(gdrive, 'sync_drive_to_batch', return_value={'imported': 0, 'total': 0}):
             # Deleting google app keeps it cleared in UI even when Render env vars exist
             self.assertTrue(self.c.get('/api/state').json()['apps']['google'])
             self.assertEqual(self.c.delete('/api/apps/google', headers=rh).status_code, 200)
@@ -577,6 +579,36 @@ class TestServer(Base):
                 self.assertEqual(chk.status_code, 200)
                 self.assertEqual(chk.json()['name'], 'RiftWhisk')
                 self.assertEqual(chk.json()['status'], 'ok')
+
+    def test_sync_snapshot_populates_cloud_counts(self):
+        rk = 'O35_UBTCYYhnXTBt38O8Amplyg_PVDKP'
+        self.c.cookies.set('pk', rk)
+        rh = {'x-postkaro': rk, 'origin': 'https://example.onrender.com'}
+        with mock.patch.dict(os.environ, {'RENDER': 'true', 'RENDER_EXTERNAL_URL': 'https://example.onrender.com'}):
+            snap = {
+                'batches': [{'id': 9, 'kit': 'D:\\clipkaro\\output\\demo', 'project': 'demo', 'title': 'Demo Video',
+                             'channel': 'RiftWhisk', 'channel_url': '', 'source_url': '', 'created': '2026-11-26T10:00:00Z'}],
+                'clips': [
+                    {'id': 101, 'batch_id': 9, 'no': 1, 'file': 'gdrive:fid1:c1.mp4', 'duration': 30.0, 'size': 1000,
+                     'score': 9.1, 'title': 'Clip 1', 'caption': 'Cap 1', 'note': None, 'deep': 0, 'cover': None, 'cover_kind': None},
+                    {'id': 102, 'batch_id': 9, 'no': 2, 'file': 'D:\\clipkaro\\output\\demo\\c2.mp4', 'duration': 30.0, 'size': 1000,
+                     'score': 8.9, 'title': 'Clip 2', 'caption': 'Cap 2', 'note': None, 'deep': 0, 'cover': None, 'cover_kind': None},
+                ],
+                'posts': [
+                    {'clip_id': 101, 'platform': 'youtube', 'enabled': 1, 'title': 'Clip 1', 'body': '',
+                     'when_utc': '2026-11-26T12:00:00Z', 'state': 'live', 'account': 'UC1',
+                     'url': 'https://youtube.com/shorts/abc', 'error': None, 'posted_at': '2026-11-26T12:00:00Z', 'updated': '2026-11-26T12:00:00Z'},
+                    {'clip_id': 102, 'platform': 'youtube', 'enabled': 1, 'title': 'Clip 2', 'body': '',
+                     'when_utc': '2026-11-27T07:00:00Z', 'state': 'scheduled', 'account': 'UC1',
+                     'url': None, 'error': None, 'posted_at': None, 'updated': '2026-11-26T12:00:00Z'},
+                ],
+            }
+            r = self.c.post('/api/discovery/sync_tasks', json={'tasks': [], 'snapshot': snap}, headers=rh)
+            self.assertEqual(r.status_code, 200)
+            st = self.c.get('/api/dashboard/stats').json()
+            self.assertEqual(st['total_clips_generated'], 2)
+            self.assertEqual(st['total_posted'], 1)
+            self.assertEqual(st['total_scheduled'], 1)
 
 
 def make_png(path):

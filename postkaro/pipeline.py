@@ -50,7 +50,8 @@ def run_clipkaro(args, cwd=CLIPKARO_DIR, timeout=7200):
     env = os.environ.copy()
     env['PYTHONUNBUFFERED'] = '1'
     env['PYTHONIOENCODING'] = 'utf-8'
-    return subprocess.run(cmd, cwd=str(cwd), capture_output=True, text=True, timeout=timeout, env=env)
+    return subprocess.run(cmd, cwd=str(cwd), capture_output=True, text=True,
+                          encoding='utf-8', errors='replace', timeout=timeout, env=env)
 
 
 def find_project_dir(url=None, video_id=None, title=None):
@@ -115,8 +116,67 @@ def notify_cloud_task(task_id, **kwargs):
         pass
 
 
+_DRIVE_CACHE = {'at': 0.0, 'files': {}}
+
+
+def _drive_map():
+    now = time.time()
+    if now - _DRIVE_CACHE['at'] < 120.0 and _DRIVE_CACHE['files']:
+        return _DRIVE_CACHE['files']
+    try:
+        from . import gdrive
+        mapping = {}
+        for f in gdrive.list_clips():
+            thumb = f.get('thumbnailLink')
+            if thumb:
+                thumb = thumb.replace('=s220', '=s720')
+            mapping[f['name']] = (f['id'], thumb)
+        _DRIVE_CACHE['files'] = mapping
+        _DRIVE_CACHE['at'] = now
+    except Exception:
+        pass
+    return _DRIVE_CACHE['files']
+
+
+def collect_cloud_snapshot():
+    """Collects local batches, active clips, and posts so Cloud Render keeps accurate counts & links."""
+    dmap = _drive_map()
+    batches = db.rows("SELECT id, kit, project, title, channel, channel_url, source_url, created FROM batches ORDER BY id ASC")
+    clips = db.rows(
+        "SELECT id, batch_id, no, file, duration, size, score, title, caption, note, deep, "
+        "cover, cover_kind FROM clips WHERE removed=0 ORDER BY batch_id ASC, no ASC"
+    )
+    out_clips = []
+    for c in clips:
+        ref = str(c['file'] or '')
+        cover = c.get('cover')
+        cover_kind = c.get('cover_kind')
+        if not ref.startswith('gdrive:'):
+            fname = Path(ref).name
+            if fname in dmap:
+                fid, thumb = dmap[fname]
+                ref = f"gdrive:{fid}:{fname}"
+                if thumb and not (isinstance(cover, str) and cover.startswith('http')):
+                    cover = thumb
+                    cover_kind = 'gdrive'
+        if isinstance(cover, str) and cover and not cover.startswith('http'):
+            cover = None
+            cover_kind = None
+        out_clips.append({
+            'id': c['id'], 'batch_id': c['batch_id'], 'no': c['no'], 'file': ref,
+            'duration': c['duration'], 'size': c['size'], 'score': c['score'],
+            'title': c['title'], 'caption': c['caption'], 'note': c.get('note'),
+            'deep': c['deep'], 'cover': cover, 'cover_kind': cover_kind,
+        })
+    posts = db.rows(
+        "SELECT clip_id, platform, enabled, title, body, when_utc, state, account, url, error, posted_at, updated "
+        "FROM posts WHERE clip_id IN (SELECT id FROM clips WHERE removed=0)"
+    )
+    return {'batches': batches, 'clips': out_clips, 'posts': posts}
+
+
 def sync_cloud_tasks():
-    """Two-way sync: Pushes all local video tasks to Cloud Render, and pulls any new cloud-queued tasks."""
+    """Two-way sync: Pushes local video tasks & clip/post snapshot to Cloud Render, and pulls cloud-queued tasks."""
     global _LAST_CLOUD_SYNC
     now = time.time()
     if now - _LAST_CLOUD_SYNC < 10.0:
@@ -129,8 +189,9 @@ def sync_cloud_tasks():
     try:
         import urllib.request
         local_tasks = db.list_video_tasks(limit=100)
+        snapshot = collect_cloud_snapshot()
         url = f"{CLOUD_BASE_URL}/api/discovery/sync_tasks?k={CLOUD_API_KEY}"
-        payload = json.dumps({'tasks': local_tasks}).encode('utf-8')
+        payload = json.dumps({'tasks': local_tasks, 'snapshot': snapshot}).encode('utf-8')
         req = urllib.request.Request(
             url,
             data=payload,
@@ -526,7 +587,8 @@ def process_task(task):
             "WHERE c.batch_id=? AND c.removed=0 AND p.enabled=1 AND p.state='draft'", (batch_id,)
         )
         if todo:
-            times = planner.plan(todo, s)
+            taken = planner.queue_taken()
+            times = planner.plan(todo, s, taken=taken)
             for pid, when_dt in times.items():
                 db.update_post(pid, when_utc=db.iso(when_dt), state='scheduled')
                 db.log(pid, f"Auto-scheduled at {db.iso(when_dt)} by AI pipeline")

@@ -287,7 +287,8 @@ async function home() {
   const fig = (k, n, label, cls = '') => `<span class="fig f${k} ${n ? cls : 'zero'}"><b class="num">${n || 0}</b><small>${label}</small></span>`;
   $('#main').innerHTML = `
     <div class="page-head"><div><h1>Post</h1>
-      <p class="lead">Add a video from ClipKaro, check each platform's title and caption, then schedule it.</p></div></div>
+      <p class="lead">Add a video from ClipKaro, check each platform's title and caption, then schedule it.</p></div>
+      <div class="actions"><button class="btn" id="sync-drive-btn">${icon('rotate-ccw', 15)}Sync Google Drive</button></div></div>
     ${none ? `<div class="notice page-notice">${icon('info')}<span>Connect your accounts first:
       <a class="link" href="#/accounts">open Accounts</a>.</span></div>` : ''}
     <div class="post-home">
@@ -319,6 +320,16 @@ async function home() {
           <p>Finish a video in ClipKaro and click its “Post them” link, or paste a project folder in Add a video.</p></div>`}
     </section>
     </div>`;
+  const sdb = $('#sync-drive-btn');
+  if (sdb) {
+    sdb.onclick = async () => {
+      try {
+        const res = await busy(sdb, () => api('/gdrive/sync', 'POST', {}));
+        toast(res.message || 'Google Drive synced.', 'ok');
+        home();
+      } catch (err) { toast(err.message, 'bad'); }
+    };
+  }
   $('#add').onsubmit = async e => {
     e.preventDefault();
     const path = $('#path').value.trim();
@@ -1784,8 +1795,8 @@ async function dashboardPage() {
       syncBtn.disabled = true;
       syncBtn.innerHTML = `${icon('loader-circle', 12, 'spin')} <span>Syncing...</span>`;
       try {
-        await api('/pipeline/resume', 'POST', {});
-        toast('Cloud queue synchronization triggered', 'ok');
+        await Promise.allSettled([api('/pipeline/resume', 'POST', {}), api('/gdrive/sync', 'POST', {})]);
+        toast('Cloud queue & Google Drive sync completed', 'ok');
       } catch (e) {
         toast('Sync notice: ' + e.message, 'info');
       }

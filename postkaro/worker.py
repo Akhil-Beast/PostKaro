@@ -12,6 +12,7 @@ Late posts (the laptop was off, or the uploads kept failing until after the time
 setting "ask" they become `missed` and the page asks what to do; with "post" they go out at once.
 """
 import json
+import os
 import threading
 import traceback
 from datetime import timedelta
@@ -84,6 +85,11 @@ def step(pid, now, s):
             raise PlatformError(f'{settings.NAMES[p["platform"]]} is not connected. Connect it on the Accounts page, '
                                 f'then press Retry.')
         if st == 'scheduled':
+            clip_ref = str(p['clip']['file'] or '')
+            if os.name != 'nt' and len(clip_ref) > 2 and clip_ref[1] == ':' and not Path(clip_ref).exists():
+                from . import gdrive
+                if not gdrive.ensure_local_file(clip_ref):
+                    return                                  # Windows-local clip managed by Local PC worker
             if when and plat.remote_schedule and plat.max_ahead and when - now > plat.max_ahead:
                 return                                      # too far ahead for the platform: wait
             if when and not plat.remote_schedule and plat.upload_ahead and when - now > plat.upload_ahead:
