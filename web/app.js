@@ -979,16 +979,26 @@ async function accountsPage() {
         <button class="btn ${yt.length ? '' : 'btn-primary'}" data-connect="google" ${S.apps.google ? '' : 'disabled'}>
           ${icon(yt.length ? 'plus' : 'link-2', 15)}${yt.length ? 'Add channel' : 'Connect YouTube'}</button></div>
       ${S.apps.google ? '' : `<div class="setup">
-        <p><b>First, your own Google app</b> (one time, about 15 minutes: guide part A). Then paste the downloaded
-          <code>client_secret_….json</code> here, or choose the file.</p>
+        <p><b>First, your own Google app</b> (one time, about 15 minutes: guide part A). Paste your downloaded
+          <code>client_secret_….json</code> here, or choose the file.${S.remote ? ' For 1-click sign-in on Render, create a <b>Web application</b> client in Google Cloud with the return address below.' : ''}</p>
         <label class="sr-only" for="gjson">Google client JSON</label>
         <textarea id="gjson" class="textarea" rows="3" placeholder='{"installed":{"client_id":"…","client_secret":"…"}}'></textarea>
         <div class="setup-acts"><label class="btn">${icon('upload', 16)}Choose file
           <input type="file" id="gfile" accept=".json,application/json" class="sr-only"></label>
           <button class="btn btn-primary" id="gsave">Save Google app</button></div></div>`}
       <div class="int-body">${yt.length ? yt.map(a => accRow(a, 'google')).join('') : '<div class="no-accounts">No channel connected yet.</div>'}</div>
-      ${S.apps.google ? `<div class="int-foot"><span class="ok-line">${icon('circle-check', 14)}Google app saved</span>
-        <button class="btn-link" data-delapp="google">Replace</button></div>` : ''}
+      ${S.remote && S.apps.google && S.google_type !== 'web' ? `<div class="setup" id="gcomplete-box" style="display:none; border-top:1px solid var(--color-line); padding-top:12px; margin-top:8px;">
+        <p style="margin-bottom:8px;"><b>Finish Desktop-app login on Render:</b> Google redirects Desktop apps to <code>127.0.0.1</code> ("This site can't be reached"). Copy the entire URL from that tab's address bar (<code>http://127.0.0.1:.../?state=...&code=...</code>) and paste it here:</p>
+        <div class="two" style="grid-template-columns:1fr auto;">
+          <input id="gcomplete-url" class="input" placeholder="Paste full http://127.0.0.1:.../?state=...&code=... URL">
+          <button class="btn btn-primary" id="gcomplete-btn">Finish YouTube Connect</button>
+        </div>
+      </div>` : ''}
+      ${S.apps.google || S.remote ? `<div class="int-foot">
+        ${S.apps.google ? `<span class="ok-line">${icon('circle-check', 14)}Google app saved (${S.google_type === 'web' ? 'Web' : 'Desktop'})${S.remote && S.google_type !== 'web' ? ` <button class="btn-link" id="gshow-complete">Paste 127.0.0.1 URL</button>` : ''} <button class="btn-link" data-delapp="google">Replace</button></span>` : '<span></span>'}
+        ${S.remote && S.redirects.google_web ? `<span class="copyline">Web return address <code id="gredir">${esc(S.redirects.google_web)}</code>
+          <button class="btn btn-ghost btn-icon btn-sm" id="copy-gredir" title="Copy" aria-label="Copy Google Web return address">${icon('copy', 14)}</button></span>` : ''}
+      </div>` : ''}
     </section>
 
     <section class="panel integration">
@@ -1084,6 +1094,23 @@ function wireAccounts() {
     try { await navigator.clipboard.writeText($('#redir').textContent); toast('Copied.', 'ok'); }
     catch { getSelection().selectAllChildren($('#redir')); toast('Selected: press Ctrl+C to copy.'); }
   };
+  const cg = $('#copy-gredir');
+  if (cg) cg.onclick = async () => {
+    try { await navigator.clipboard.writeText($('#gredir').textContent); toast('Copied.', 'ok'); }
+    catch { getSelection().selectAllChildren($('#gredir')); toast('Selected: press Ctrl+C to copy.'); }
+  };
+  const gshow = $('#gshow-complete');
+  if (gshow) gshow.onclick = () => { const b = $('#gcomplete-box'); if (b) b.style.display = b.style.display === 'none' ? 'block' : 'none'; };
+  const gcomp = $('#gcomplete-btn');
+  if (gcomp) gcomp.onclick = async () => {
+    const rawUrl = $('#gcomplete-url')?.value || '';
+    try {
+      await busy(gcomp, () => api('/connect/google/complete', 'POST', {url: rawUrl}));
+      toast('YouTube connected!', 'ok');
+      await loadState();
+      accountsPage();
+    } catch (e) { toast(e.message, 'bad'); }
+  };
   $('#sets').onsubmit = async e => {
     e.preventDefault();
     const f = new FormData(e.target);
@@ -1105,8 +1132,12 @@ async function connect(name, btn) {
   const before = JSON.stringify(S.accounts);
   try {
     const r = await busy(btn, () => api('/connect/' + name, 'POST', {}));
+    if (r.manual_loopback && name === 'google') {
+      const box = $('#gcomplete-box');
+      if (box) box.style.display = 'block';
+    }
     window.open(r.url, '_blank', 'noopener');
-    toast('Finish the login in the new tab. This page updates by itself.', 'info', 10000);
+    toast(r.manual_loopback ? 'After approving in Google, paste the redirected 127.0.0.1 URL below to finish.' : 'Finish the login in the new tab. This page updates by itself.', 'info', 10000);
     for (let i = 0; i < 90; i++) {                        // up to 3 minutes
       await new Promise(res => setTimeout(res, 2000));
       await loadState();
@@ -2256,7 +2287,7 @@ function renderPlatformControls(controls) {
       </div>
 
       <div class="saas-plat-box-body">
-        <strong>Connected Channel:</strong> ${esc(yt.account ? yt.account.name : 'ShadowStrike')}
+        <strong>Connected Channel:</strong> ${esc(yt.account ? yt.account.name : 'RiftWhisk')}
       </div>
 
       <div class="saas-plat-box-foot">

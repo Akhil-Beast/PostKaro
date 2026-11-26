@@ -187,11 +187,15 @@ def account_view(a):
 
 def state(request, body):
     s = settings.load()
+    gapp = _google_app()
     return {'version': __version__, 'settings': s, 'accounts': [account_view(a) for a in db.accounts()],
-            'apps': {'google': vault.get('app:google') is not None, 'meta': safe_vault_get('app:meta') is not None},
+            'apps': {'google': gapp is not None, 'meta': safe_vault_get('app:meta') is not None},
+            'remote': is_remote(),
+            'google_type': (gapp or {}).get('client_type', 'installed') if gapp else None,
             'platform_controls': get_platform_statuses(),
             'vault': vault.status(), 'now': settings.to_local(db.now(), s), 'base': paths.base_url(),
-            'redirects': {'google': redirect('google'), 'meta': redirect('meta')},
+            'redirects': {'google': redirect('google'), 'google_web': f"{paths.base_url()}/oauth/google",
+                          'meta': redirect('meta')},
             'counts': {r['state']: r['n'] for r in db.rows('SELECT state, COUNT(*) n FROM posts GROUP BY state')}}
 
 
@@ -493,10 +497,28 @@ def save_settings(request, body):
 
 # ---------- apps and accounts ----------
 
+def is_remote():
+    return bool(os.environ.get('RENDER') or os.environ.get('RENDER_EXTERNAL_URL') or os.environ.get('APP_URL'))
+
+
+def _google_app():
+    app = safe_vault_get('app:google')
+    if not app and os.environ.get('GOOGLE_CLIENT_ID') and os.environ.get('GOOGLE_CLIENT_SECRET'):
+        return {'client_id': os.environ['GOOGLE_CLIENT_ID'],
+                'client_secret': os.environ['GOOGLE_CLIENT_SECRET'],
+                'client_type': 'web' if os.environ.get('GOOGLE_OAUTH_WEB') else 'installed'}
+    return app
+
+
 def redirect(name):
-    """Where Google / Meta send the browser back. Google: the page's own address (desktop apps use the plain
-    loopback address). Meta: a fixed localhost address, which Meta allows while the app is in development."""
+    """Where Google / Meta send the browser back."""
     port = paths.app_info()['port']
+    if is_remote():
+        if name == 'meta':
+            return f"{paths.base_url()}/oauth/meta"
+        app = _google_app() or {}
+        if app.get('client_type') == 'web' or os.environ.get('GOOGLE_OAUTH_WEB'):
+            return f"{paths.base_url()}/oauth/google"
     return f'http://localhost:{port}/oauth/meta' if name == 'meta' else f'http://127.0.0.1:{port}/'
 
 
@@ -512,11 +534,13 @@ def save_app(request, body):
         inner = cfg.get('installed') or cfg.get('web') or cfg
         if not inner.get('client_id') or not inner.get('client_secret'):
             raise ApiError('The file needs client_id and client_secret. Download it again from Google Cloud '
-                           '(Clients -> your Desktop client -> Download JSON).')
-        if 'web' in cfg:
+                           '(Clients -> your client -> Download JSON).')
+        if 'web' in cfg and not is_remote():
             raise ApiError('This is a "Web application" client. Make a "Desktop app" client instead '
                            '(docs/connect-accounts.md).')
-        vault.put('app:google', {'client_id': inner['client_id'], 'client_secret': inner['client_secret']})
+        ctype = 'web' if 'web' in cfg else 'installed'
+        vault.put('app:google', {'client_id': inner['client_id'], 'client_secret': inner['client_secret'],
+                                 'client_type': ctype})
     elif name == 'meta':
         app_id, secret_ = str(body.get('app_id', '')).strip(), str(body.get('app_secret', '')).strip()
         if not app_id.isdigit() or len(secret_) < 16:
@@ -535,12 +559,36 @@ def delete_app(request, body):
 def connect(request, body):
     name = request.path_params['name']
     mod = login_module(name)
-    url, data = mod.login_start(redirect(name))
+    redir = redirect(name)
+    url, data = mod.login_start(redir)
     st = data['state']
-    PENDING[st] = (name, data, time.time())
+    PENDING[st] = (name, data, time.time(), redir)
     for k in [k for k, v in PENDING.items() if time.time() - v[2] > 1800]:
         PENDING.pop(k, None)
-    return {'url': url}
+    return {'url': url, 'redirect': redir, 'manual_loopback': is_remote() and redir.startswith('http://127.0.0.1')}
+
+
+def connect_complete(request, body):
+    """Complete OAuth manually from a pasted loopback redirect URL (e.g. Desktop client used on Render)."""
+    from urllib.parse import parse_qs, urlparse
+    name = request.path_params['name']
+    raw = (body.get('url') or '').strip()
+    if not raw:
+        raise ApiError('Paste the full URL from the browser tab where Google redirected you.')
+    parsed = urlparse(raw)
+    q = {k: v[0] for k, v in parse_qs(parsed.query).items() if v}
+    if 'error' in q:
+        why = q.get('error_description') or q.get('error_reason') or q.get('error')
+        raise ApiError(f'The login was not completed ({why}).')
+    if 'code' not in q or 'state' not in q:
+        raise ApiError('That link is missing ?code=... and ?state=.... Copy the full address bar from the redirected tab.')
+    pending = PENDING.pop(q['state'], None)
+    if not pending or pending[0] != name:
+        raise ApiError('That login attempt expired or does not match. Press Connect again and copy the new link.')
+    redir = pending[3] if len(pending) > 3 else redirect(name)
+    saved = login_module(name).login_finish(q, pending[1], redir)
+    names = ', '.join(f"{settings.NAMES[a['platform']]}: {a['name']}" for a in saved) or 'nothing'
+    return {'ok': True, 'connected': names, 'accounts': saved}
 
 
 def login_module(name):
@@ -568,8 +616,9 @@ async def oauth_callback(request: Request, name=None):
     if 'error' in q or 'code' not in q:
         why = q.get('error_description') or q.get('error_reason') or q.get('error') or 'no permission was given'
         return HTMLResponse(page_msg(f'The login was not completed ({why}).', back), 400)
+    redir = pending[3] if len(pending) > 3 else redirect(name)
     try:
-        saved = await run_in_threadpool(login_module(name).login_finish, q, pending[1], redirect(name))
+        saved = await run_in_threadpool(login_module(name).login_finish, q, pending[1], redir)
     except PlatformError as e:
         return HTMLResponse(page_msg(str(e), back), 400)
     names = ', '.join(f"{settings.NAMES[a['platform']]}: {a['name']}" for a in saved) or 'nothing'
@@ -1040,7 +1089,7 @@ async def lifespan(app):
     if os.environ.get('YOUTUBE_REFRESH_TOKEN'):
         try:
             ch_id = os.environ.get('YOUTUBE_CHANNEL_ID', 'UCy0VyDSK-bgz7JC-TcC7UyA')
-            ch_name = os.environ.get('YOUTUBE_CHANNEL_NAME', 'Akhil Rawat')
+            ch_name = os.environ.get('YOUTUBE_CHANNEL_NAME', 'RiftWhisk')
             if not db.one("SELECT account_id FROM accounts WHERE platform='youtube' AND account_id=?", (ch_id,)):
                 db.save_account('youtube', ch_id, ch_name)
         except Exception as e:
@@ -1084,6 +1133,7 @@ def routes():
         R('/api/apps/{name}', api(save_app), methods=['POST']),
         R('/api/apps/{name}', api(delete_app), methods=['DELETE']),
         R('/api/connect/{name}', api(connect), methods=['POST']),
+        R('/api/connect/{name}/complete', api(connect_complete), methods=['POST']),
         R('/api/account/{platform}/{aid}/{action}', api(account_action), methods=['POST']),
         R('/api/discovery/search', api(discovery_search), methods=['POST']),
         R('/api/discovery/queue', api(discovery_queue), methods=['POST']),

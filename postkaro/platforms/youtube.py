@@ -13,7 +13,7 @@ import time
 from datetime import timedelta
 from pathlib import Path
 
-from .. import db, settings, vault
+from .. import db, paths, settings, vault
 from .base import Platform, PlatformError
 
 SCOPES = ['https://www.googleapis.com/auth/youtube']
@@ -24,8 +24,16 @@ CHUNK = 8 * 1024 * 1024
 
 def _client_config():
     app = vault.get('app:google')
+    if not app and os.environ.get('GOOGLE_CLIENT_ID') and os.environ.get('GOOGLE_CLIENT_SECRET'):
+        app = {'client_id': os.environ['GOOGLE_CLIENT_ID'],
+               'client_secret': os.environ['GOOGLE_CLIENT_SECRET'],
+               'client_type': 'web' if os.environ.get('GOOGLE_OAUTH_WEB') else 'installed'}
     if not app:
         raise PlatformError('Save your Google app first (Accounts page, YouTube).')
+    if app.get('client_type') == 'web':
+        return {'web': {'client_id': app['client_id'], 'client_secret': app['client_secret'],
+                        'auth_uri': 'https://accounts.google.com/o/oauth2/auth', 'token_uri': TOKEN_URI,
+                        'redirect_uris': [f"{paths.base_url()}/oauth/google"]}}
     return {'installed': {'client_id': app['client_id'], 'client_secret': app['client_secret'],
                           'auth_uri': 'https://accounts.google.com/o/oauth2/auth', 'token_uri': TOKEN_URI,
                           'redirect_uris': ['http://127.0.0.1', 'http://localhost']}}
@@ -90,8 +98,10 @@ def _creds(account):
     from google.auth.transport.requests import Request
     from google.oauth2.credentials import Credentials
     info = vault.get(f"youtube:{account['account_id']}")
+    app = vault.get('app:google') or {}
+    if info and app.get('client_secret') and info.get('client_id') == app.get('client_id'):
+        info = dict(info, client_secret=app['client_secret'])
     if not info and os.environ.get('YOUTUBE_REFRESH_TOKEN'):
-        app = vault.get('app:google') or {}
         info = {
             'refresh_token': os.environ['YOUTUBE_REFRESH_TOKEN'],
             'client_id': os.environ.get('GOOGLE_CLIENT_ID') or app.get('client_id'),

@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -532,6 +533,36 @@ class TestServer(Base):
         self.assertEqual(vault.get('app:google')['client_id'], 'a')
         self.assertTrue(self.c.get('/api/state').json()['apps']['google'])
         self.assertNotIn('"b"', self.c.get('/api/state').text)    # secrets never go to the page
+
+    def test_remote_google_oauth(self):
+        from postkaro.platforms import youtube
+        rk = 'O35_UBTCYYhnXTBt38O8Amplyg_PVDKP'
+        self.c.cookies.set('pk', rk)
+        rh = {'x-postkaro': rk, 'origin': 'https://example.onrender.com'}
+        with mock.patch.dict(os.environ, {'RENDER': 'true', 'RENDER_EXTERNAL_URL': 'https://example.onrender.com'}):
+            # Web app client allowed remotely and redirects to /oauth/google
+            r = self.c.post('/api/apps/google', json={'client': {'web': {'client_id': 'w1', 'client_secret': 'ws1'}}},
+                            headers=rh)
+            self.assertEqual(r.status_code, 200)
+            st = self.c.get('/api/state').json()
+            self.assertEqual(st['google_type'], 'web')
+            self.assertEqual(st['redirects']['google'], 'https://example.onrender.com/oauth/google')
+            self.assertNotIn('"ws1"', json.dumps(st))
+
+            # Installed client also supported remotely via /api/connect/google/complete loopback URL paste
+            r = self.c.post('/api/apps/google', json={'client': {'installed': {'client_id': 'd1', 'client_secret': 'ds1'}}},
+                            headers=rh)
+            self.assertEqual(r.status_code, 200)
+            with mock.patch.object(youtube, 'login_start', return_value=('https://accounts.google.com/o/oauth2/auth?x=1', {'state': 'st123', 'verifier': 'v1'})), \
+                 mock.patch.object(youtube, 'login_finish', return_value=[{'platform': 'youtube', 'name': 'RiftWhisk'}]) as fin:
+                cr = self.c.post('/api/connect/google', json={}, headers=rh).json()
+                self.assertTrue(cr['manual_loopback'])
+                fin_r = self.c.post('/api/connect/google/complete',
+                                    json={'url': 'http://127.0.0.1:10000/?state=st123&code=cd999'}, headers=rh)
+                self.assertEqual(fin_r.status_code, 200)
+                self.assertEqual(fin_r.json()['connected'], 'YouTube: RiftWhisk')
+                fin.assert_called_once()
+                self.assertEqual(fin.call_args[0][0]['code'], 'cd999')
 
 
 def make_png(path):

@@ -23,7 +23,7 @@ services:
       - key: YOUTUBE_CHANNEL_ID
         value: UCy0VyDSK-bgz7JC-TcC7UyA
       - key: YOUTUBE_CHANNEL_NAME
-        value: Akhil Rawat
+        value: RiftWhisk
       - key: GOOGLE_CLIENT_ID
         sync: false
       - key: GOOGLE_CLIENT_SECRET
