@@ -570,6 +570,14 @@ class TestServer(Base):
                 fin.assert_called_once()
                 self.assertEqual(fin.call_args[0][0]['code'], 'cd999')
 
+            # Account check endpoint parses extra JSON cleanly without HTTP 500
+            db.save_account('youtube', 'UCtest123', 'RiftWhisk', extra={'username': 'riftwhisk'})
+            with mock.patch.object(youtube.YouTube, 'check', return_value={'ok': True, 'name': 'RiftWhisk', 'expires': None}):
+                chk = self.c.post('/api/account/youtube/UCtest123/check', json={}, headers=rh)
+                self.assertEqual(chk.status_code, 200)
+                self.assertEqual(chk.json()['name'], 'RiftWhisk')
+                self.assertEqual(chk.json()['status'], 'ok')
+
 
 def make_png(path):
     subprocess.run(['ffmpeg', '-v', 'error', '-y', '-f', 'lavfi', '-i', 'color=c=red:s=90x160', '-frames:v', '1', str(path)],

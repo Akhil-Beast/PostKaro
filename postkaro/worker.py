@@ -298,7 +298,7 @@ def check_account(a, now=None):
     db.run('UPDATE accounts SET checked=?, status=?, problem=?, expires=?, extra=?, name=COALESCE(?, name) '
            'WHERE platform=? AND account_id=?',
            (db.iso(now), status, prob, expires, json.dumps(extra), r.get('name'), a['platform'], a['account_id']))
-    return db.one('SELECT * FROM accounts WHERE platform=? AND account_id=?', (a['platform'], a['account_id']))
+    return next((x for x in db.accounts(a['platform']) if x['account_id'] == a['account_id']), a)
 
 
 class Worker(threading.Thread):

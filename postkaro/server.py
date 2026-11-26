@@ -179,8 +179,9 @@ def batch_view(bid):
 
 
 def account_view(a):
+    extra = a['extra'] if isinstance(a.get('extra'), dict) else json.loads(a.get('extra') or '{}')
     return {k: a[k] for k in ('platform', 'account_id', 'name', 'status', 'problem', 'expires', 'checked',
-                              'active', 'connected')} | {'username': a['extra'].get('username')}
+                              'active', 'connected')} | {'username': extra.get('username')}
 
 
 # ---------- endpoints ----------
