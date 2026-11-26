@@ -539,7 +539,13 @@ class TestServer(Base):
         rk = 'O35_UBTCYYhnXTBt38O8Amplyg_PVDKP'
         self.c.cookies.set('pk', rk)
         rh = {'x-postkaro': rk, 'origin': 'https://example.onrender.com'}
-        with mock.patch.dict(os.environ, {'RENDER': 'true', 'RENDER_EXTERNAL_URL': 'https://example.onrender.com'}):
+        with mock.patch.dict(os.environ, {'RENDER': 'true', 'RENDER_EXTERNAL_URL': 'https://example.onrender.com',
+                                          'GOOGLE_CLIENT_ID': 'env_id', 'GOOGLE_CLIENT_SECRET': 'env_sec'}):
+            # Deleting google app keeps it cleared in UI even when Render env vars exist
+            self.assertTrue(self.c.get('/api/state').json()['apps']['google'])
+            self.assertEqual(self.c.delete('/api/apps/google', headers=rh).status_code, 200)
+            self.assertFalse(self.c.get('/api/state').json()['apps']['google'])
+
             # Web app client allowed remotely and redirects to /oauth/google
             r = self.c.post('/api/apps/google', json={'client': {'web': {'client_id': 'w1', 'client_secret': 'ws1'}}},
                             headers=rh)

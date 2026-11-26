@@ -24,15 +24,11 @@ def folder_id():
 
 
 def get_credentials():
-    # 1. Environment variables (ideal for Render / cloud)
-    client_id = os.environ.get('GOOGLE_CLIENT_ID')
-    client_secret = os.environ.get('GOOGLE_CLIENT_SECRET')
-    refresh_token = os.environ.get('GDRIVE_REFRESH_TOKEN')
-
-    # 2. Vault fallback
+    # 1. Vault credentials first (allows UI Replace to override env vars), then env vars
     app = vault.get('app:google') or {}
-    client_id = client_id or app.get('client_id')
-    client_secret = client_secret or app.get('client_secret')
+    client_id = app.get('client_id') or os.environ.get('GOOGLE_CLIENT_ID')
+    client_secret = app.get('client_secret') or os.environ.get('GOOGLE_CLIENT_SECRET')
+    refresh_token = os.environ.get('GDRIVE_REFRESH_TOKEN')
 
     # 3. Check for local token file
     token_file = Path(__file__).resolve().parent.parent / 'gdrive_token.json'

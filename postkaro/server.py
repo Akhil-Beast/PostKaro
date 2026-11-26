@@ -502,6 +502,8 @@ def is_remote():
 
 
 def _google_app():
+    if safe_vault_get('app:google:cleared'):
+        return None
     app = safe_vault_get('app:google')
     if not app and os.environ.get('GOOGLE_CLIENT_ID') and os.environ.get('GOOGLE_CLIENT_SECRET'):
         return {'client_id': os.environ['GOOGLE_CLIENT_ID'],
@@ -539,6 +541,7 @@ def save_app(request, body):
             raise ApiError('This is a "Web application" client. Make a "Desktop app" client instead '
                            '(docs/connect-accounts.md).')
         ctype = 'web' if 'web' in cfg else 'installed'
+        vault.delete('app:google:cleared')
         vault.put('app:google', {'client_id': inner['client_id'], 'client_secret': inner['client_secret'],
                                  'client_type': ctype})
     elif name == 'meta':
@@ -552,7 +555,10 @@ def save_app(request, body):
 
 
 def delete_app(request, body):
-    vault.delete('app:' + request.path_params['name'])
+    name = request.path_params['name']
+    vault.delete('app:' + name)
+    if name == 'google':
+        vault.put('app:google:cleared', True)
     return {'ok': True}
 
 

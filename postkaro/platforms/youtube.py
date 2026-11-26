@@ -23,8 +23,8 @@ CHUNK = 8 * 1024 * 1024
 
 
 def _client_config():
-    app = vault.get('app:google')
-    if not app and os.environ.get('GOOGLE_CLIENT_ID') and os.environ.get('GOOGLE_CLIENT_SECRET'):
+    app = None if vault.get('app:google:cleared') else vault.get('app:google')
+    if not app and not vault.get('app:google:cleared') and os.environ.get('GOOGLE_CLIENT_ID') and os.environ.get('GOOGLE_CLIENT_SECRET'):
         app = {'client_id': os.environ['GOOGLE_CLIENT_ID'],
                'client_secret': os.environ['GOOGLE_CLIENT_SECRET'],
                'client_type': 'web' if os.environ.get('GOOGLE_OAUTH_WEB') else 'installed'}
@@ -104,8 +104,8 @@ def _creds(account):
     if not info and os.environ.get('YOUTUBE_REFRESH_TOKEN'):
         info = {
             'refresh_token': os.environ['YOUTUBE_REFRESH_TOKEN'],
-            'client_id': os.environ.get('GOOGLE_CLIENT_ID') or app.get('client_id'),
-            'client_secret': os.environ.get('GOOGLE_CLIENT_SECRET') or app.get('client_secret'),
+            'client_id': app.get('client_id') or os.environ.get('GOOGLE_CLIENT_ID'),
+            'client_secret': app.get('client_secret') or os.environ.get('GOOGLE_CLIENT_SECRET'),
             'token_uri': 'https://oauth2.googleapis.com/token'
         }
     if not info:
